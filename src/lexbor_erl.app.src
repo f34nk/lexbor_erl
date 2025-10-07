@@ -1,0 +1,10 @@
+{application, lexbor_erl,
+ [{description, "Erlang wrapper for Lexbor HTML via a port"},
+  {vsn, "0.0.1"},
+  {registered, [lexbor_erl_port]},
+  {mod, {lexbor_erl_app, []}},
+  {applications, [kernel, stdlib]},
+  {env, [
+      {op_timeout_ms, 3000}
+  ]}
+ ]}.
