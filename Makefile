@@ -6,6 +6,9 @@ compile: clean
 test:
 	rebar3 ct
 
+doc:
+	rm -rf doc && rebar3 edoc
+
 clean:
 	rm -rf c_src/build && rebar3 clean
 
