@@ -1,0 +1,16 @@
+_build/
+_checkouts/
+.rebar3
+rebar3.crashdump
+*.beam
+*.o
+*.so
+*.dylib
+*.dll
+priv/
+c_src/build/
+erl_crash.dump
+*.swp
+*.swo
+*~
+.DS_Store
