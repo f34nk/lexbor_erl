@@ -1,4 +1,4 @@
--module(debug_test).
+-module(select_example).
 -export([run/0]).
 
 run() ->

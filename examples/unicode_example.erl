@@ -1,4 +1,4 @@
--module(test_unicode).
+-module(unicode_example).
 -export([run/0]).
 
 run() ->
