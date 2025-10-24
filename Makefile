@@ -37,7 +37,8 @@ examples: select_example.erl \
 		  unicode_example.erl \
 		  attribute_example.erl \
 		  text_example.erl \
-		  node_example.erl
+		  node_example.erl \
+		  chunk_based_streaming_example.erl
 
 %.erl:
 	#
