@@ -30,21 +30,21 @@ stop() ->
 
 -spec alive() -> boolean().
 alive() ->
-    lexbor_erl_port:alive().
+    lexbor_erl_pool:alive().
 
 %% --- Stateless API ---
 
 %% Minimal round-trip: send HTML, get "serialized" HTML back
 -spec parse_serialize(html_bin()) -> result(binary()).
 parse_serialize(Html) when is_list(Html) ; is_binary(Html) ->
-    lexbor_erl_port:call(<<"PARSE_SERIALIZE">>, iolist_to_binary(Html)).
+    lexbor_erl_pool:call(undefined, {<<"PARSE_SERIALIZE">>, iolist_to_binary(Html)}).
 
 %% Single-shot parse -> select -> serialize(each node outerHTML)
 -spec select_html(html_bin(), selector()) -> result([binary()]).
 select_html(Html, Css) ->
     Payload = << (iolist_size(Css)):32/big, (iolist_to_binary(Css))/binary,
                  (iolist_to_binary(Html))/binary >>,
-    case lexbor_erl_port:call(<<"SELECT_HTML">>, Payload) of
+    case lexbor_erl_pool:call(undefined, {<<"SELECT_HTML">>, Payload}) of
         {ok, Bin} ->
             decode_bin_list(Bin);
         Error ->
@@ -56,7 +56,10 @@ select_html(Html, Css) ->
 -spec parse(html_bin()) -> result(doc_id()).
 parse(Html) ->
     %% Request: payload = Html
-    case lexbor_erl_port:call(<<"PARSE_DOC">>, iolist_to_binary(Html)) of
+    %% Generate a worker ID for this new document (round-robin)
+    PoolSize = lexbor_erl_pool:get_pool_size(),
+    WorkerId = (erlang:system_time(microsecond) rem PoolSize) + 1,
+    case lexbor_erl_pool:call({new_doc, WorkerId}, {<<"PARSE_DOC">>, iolist_to_binary(Html)}) of
         {ok, <<0, DocId:64/big-unsigned-integer>>} ->
             {ok, DocId};
         {ok, <<1, Err/binary>>} ->
@@ -67,7 +70,8 @@ parse(Html) ->
 -spec release(doc_id()) -> ok | {error, term()}.
 release(DocId) ->
     Req = <<DocId:64/big-unsigned-integer>>,
-    case lexbor_erl_port:call(<<"RELEASE_DOC">>, Req) of
+    %% Route by DocId to the worker that has this document
+    case lexbor_erl_pool:call(DocId, {<<"RELEASE_DOC">>, Req}) of
         {ok, <<0>>} -> ok;
         {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
         Other -> Other
@@ -77,7 +81,8 @@ release(DocId) ->
 select(DocId, Css) ->
     CS = iolist_to_binary(Css),
     Req = <<DocId:64/big-unsigned-integer, (byte_size(CS)):32/big, CS/binary>>,
-    case lexbor_erl_port:call(<<"SELECT_NODES">>, Req) of
+    %% Route by DocId to the worker that has this document
+    case lexbor_erl_pool:call(DocId, {<<"SELECT_NODES">>, Req}) of
         {ok, <<0, Cnt:32/big, Rest/binary>>} ->
             {ok, read_handles(Cnt, Rest, [])};
         {ok, <<1, Err/binary>>} ->
@@ -88,7 +93,8 @@ select(DocId, Css) ->
 -spec outer_html(doc_id(), node_ref()) -> result(binary()).
 outer_html(DocId, {node, Handle}) ->
     Req = <<DocId:64/big-unsigned-integer, Handle:64/big-unsigned-integer>>,
-    case lexbor_erl_port:call(<<"OUTER_HTML">>, Req) of
+    %% Route by DocId to the worker that has this document
+    case lexbor_erl_pool:call(DocId, {<<"OUTER_HTML">>, Req}) of
         {ok, <<0, Len:32/big, Bin:Len/binary>>} -> {ok, Bin};
         {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
         Other -> Other
