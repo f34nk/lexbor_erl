@@ -4,7 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [Unreleased] - DOM Manipulation
+
+### Added
+- DOM manipulation API with 11 new functions:
+  - Attributes: `get_attribute/3`, `set_attribute/4`, `remove_attribute/3`
+  - Text/HTML: `get_text/2`, `set_text/3`, `inner_html/2`, `set_inner_html/3`, `serialize/1`
+  - Nodes: `create_element/2`, `append_child/3`, `insert_before/4`, `remove_node/2`
+- C unit test suite with 38 tests
+- 14 DOM manipulation integration tests
+- 5 example programs: `attribute_example`, `text_example`, `node_example`, `select_example`, `unicode_example`
+
+### Changed
+- Test suite expanded to 44 tests (30 core + 14 DOM)
+- C port supports 12 additional DOM operations
+
+## [Unreleased] - Parallelism
 
 ### Added
 - Worker pool architecture with configurable parallelism
@@ -22,11 +37,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Architecture upgraded from single-threaded to worker pool
 - Test suite expanded from 24 to 30 tests
 - Routing strategy uses time-based hash instead of sequential round-robin
-- Build process uses `rebar3 compile && sh c_src/build.sh`
 
 ### Fixed
 - Corrected routing strategy documentation from "round-robin" to "time-based hash distribution"
-- Added inline documentation for worker selection algorithm
 
 ## [Unreleased] - single-threaded
 
