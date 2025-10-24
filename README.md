@@ -46,8 +46,7 @@ sudo make install
 ## Building
 
 ```bash
-rebar3 compile
-sh c_src/build.sh
+make
 ```
 
 ## Quick Start
@@ -142,16 +141,53 @@ In your `sys.config`:
 ]}.
 ```
 
-## Thread Safety
+## Parallelism and Concurrency
 
-The current implementation is thread-safe by virtue of being single-threaded:
-- All calls are serialized through a single gen_server
-- The C port handles one request at a time
-- No shared mutable state between concurrent operations
+`lexbor_erl` uses a **worker pool architecture** to enable true parallel processing of HTML operations:
+
+### Architecture
+
+- **Multiple port workers**: Configurable pool of independent C port processes
+- **Smart routing**: 
+  - Stateless operations (e.g., `parse_serialize/1`, `select_html/2`) use round-robin distribution
+  - Stateful operations route by `DocId` to ensure the same worker handles all operations for a given document
+- **Isolation**: Each worker process is independent with its own document registry
+- **Fault tolerance**: Worker crashes are isolated and don't affect other workers or the BEAM VM
+
+### Configuration
+
+Set the pool size in your `sys.config`:
+
+```erlang
+{lexbor_erl, [
+  {pool_size, 8},              % Number of parallel workers (default: scheduler count)
+  {op_timeout_ms, 3000}        % Timeout per operation
+]}.
+```
+
+Or via environment variable when starting the application:
+
+```erlang
+application:set_env(lexbor_erl, pool_size, 8).
+```
+
+### Thread Safety
+
+- **Safe by design**: Each worker is single-threaded, processing one request at a time
+- **No shared state**: Documents are isolated to their respective workers
+- **Concurrent operations**: Multiple workers can process different documents simultaneously
+- **Consistent routing**: A document always routes to the same worker via consistent hashing on `DocId`
+
+### Performance Characteristics
+
+- **Parallelism**: Leverages all CPU cores for concurrent HTML parsing and manipulation
+- **No contention**: No locks or shared mutable state between workers
+- **Linear scaling**: Performance scales linearly with the number of workers (up to CPU core count)
+- **Stateless optimization**: Stateless operations (`parse_serialize`, `select_html`) can use any available worker
 
 ## License
 
-MIT License (or specify your license)
+Apache 2.0
 
 ## Credits
 
