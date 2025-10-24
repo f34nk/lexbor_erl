@@ -75,8 +75,14 @@ call(Key, {CmdTag, Payload}) ->
     % Call the worker and potentially rewrite the DocId in the response
     case lexbor_erl_worker:call(Worker, CmdTag, ActualPayload) of
         {ok, <<0, DocId:64/big-unsigned-integer>>} when MaybeWorkerId =/= undefined ->
-            % This is a PARSE_DOC response - encode worker ID into the high bits
+            % This is a PARSE_DOC or PARSE_STREAM_BEGIN response - encode worker ID into the high bits
             EncodedDocId = encode_doc_id(MaybeWorkerId, DocId),
+            {ok, <<0, EncodedDocId:64/big-unsigned-integer>>};
+        {ok, <<0, DocId:64/big-unsigned-integer>>} when CmdTag =:= <<"PARSE_STREAM_END">> ->
+            % PARSE_STREAM_END returns a new DocId that needs worker ID encoding
+            % Extract worker ID from the Key (which was a SessionId)
+            {WorkerId, _RealSessionId} = decode_doc_id(Key, get_pool_size()),
+            EncodedDocId = encode_doc_id(WorkerId, DocId),
             {ok, <<0, EncodedDocId:64/big-unsigned-integer>>};
         Other ->
             Other
@@ -139,19 +145,28 @@ code_change(_OldVsn, State, _Extra) ->
     {pid(), pos_integer() | undefined, binary() | undefined}.
 get_worker_and_payload(Key, Payload) ->
     Workers = gen_server:call(?SERVER, get_workers),
+    PoolSize = length(Workers),
     {Index, ReturnWorkerId, DecodedPayload} = case Key of
         undefined ->
             % Stateless operation - time-based hash distribution
-            {erlang:phash2(erlang:monotonic_time(), length(Workers)), undefined, undefined};
+            {erlang:phash2(erlang:monotonic_time(), PoolSize), undefined, undefined};
         {new_doc, WorkerId} ->
             % New document on specific worker
             {WorkerId - 1, WorkerId, undefined};
         DocId when is_integer(DocId) ->
             % Stateful operation - extract worker ID from DocId
             % and decode the DocId in the payload
-            {WorkerId, RealDocId} = decode_doc_id(DocId, length(Workers)),
+            {WorkerId, RealDocId} = decode_doc_id(DocId, PoolSize),
+            % Validate WorkerId is in valid range
+            ValidWorkerId = if
+                WorkerId < 1 orelse WorkerId > PoolSize ->
+                    % Invalid worker ID - fall back to hash-based routing
+                    erlang:phash2(DocId, PoolSize) + 1;
+                true ->
+                    WorkerId
+            end,
             NewPayload = decode_payload_docid(Payload, RealDocId),
-            {WorkerId - 1, undefined, NewPayload}
+            {ValidWorkerId - 1, undefined, NewPayload}
     end,
     {lists:nth(Index + 1, Workers), ReturnWorkerId, DecodedPayload}.
 

@@ -37,13 +37,14 @@
 -module(lexbor_erl).
 
 %% Types
--type doc_id()   :: integer().
--type node_ref() :: {node, integer()}.
--type selector() :: binary().
--type html_bin() :: binary() | iolist().
--type result(T)  :: {ok, T} | {error, term()}.
+-type doc_id()      :: integer().
+-type session_id()  :: integer().
+-type node_ref()    :: {node, integer()}.
+-type selector()    :: binary().
+-type html_bin()    :: binary() | iolist().
+-type result(T)     :: {ok, T} | {error, term()}.
 
--export_type([doc_id/0, node_ref/0, selector/0, html_bin/0, result/1]).
+-export_type([doc_id/0, session_id/0, node_ref/0, selector/0, html_bin/0, result/1]).
 
 -export([
     start/0, stop/0, alive/0,
@@ -52,6 +53,8 @@
     %% stateful
     parse/1, release/1,
     select/2, outer_html/2,
+    %% streaming parser
+    parse_stream_begin/0, parse_stream_chunk/2, parse_stream_end/1,
     %% DOM manipulation - attributes
     get_attribute/3, set_attribute/4, remove_attribute/3,
     %% DOM manipulation - text and HTML
@@ -210,6 +213,116 @@ release(DocId) ->
     case lexbor_erl_pool:call(DocId, {<<"RELEASE_DOC">>, Req}) of
         {ok, <<0>>} -> ok;
         {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
+        Other -> Other
+    end.
+
+%% --- Streaming Parser API ---
+
+%% @doc Begin a streaming parse session.
+%%
+%% Starts a new streaming parse session that allows you to feed HTML
+%% content incrementally as chunks. This is useful for parsing very large
+%% documents or when HTML is arriving over a network connection.
+%%
+%% After calling this, use {@link parse_stream_chunk/2} to feed chunks,
+%% and {@link parse_stream_end/1} to finalize and get the document.
+%%
+%% The session is stateful and tied to a specific worker. All chunks
+%% for this session will be routed to the same worker automatically.
+%%
+%% == Example ==
+%% ```
+%% {ok, Session} = lexbor_erl:parse_stream_begin(),
+%% ok = lexbor_erl:parse_stream_chunk(Session, <<"<html><body>">>),
+%% ok = lexbor_erl:parse_stream_chunk(Session, <<"<p>Hello</p>">>),
+%% ok = lexbor_erl:parse_stream_chunk(Session, <<"</body></html>">>),
+%% {ok, Doc} = lexbor_erl:parse_stream_end(Session),
+%% % Now use Doc like any other document
+%% ok = lexbor_erl:release(Doc).
+%% '''
+%%
+%% @returns `{ok, SessionId}' with session handle, or `{error, Reason}'
+-spec parse_stream_begin() -> result(session_id()).
+parse_stream_begin() ->
+    %% Assign to a worker using time-based hash distribution
+    PoolSize = lexbor_erl_pool:get_pool_size(),
+    WorkerId = (erlang:system_time(microsecond) rem PoolSize) + 1,
+    case lexbor_erl_pool:call({new_doc, WorkerId}, {<<"PARSE_STREAM_BEGIN">>, <<>>}) of
+        {ok, <<0, SessionId:64/big-unsigned-integer>>} ->
+            {ok, SessionId};
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        {ok, <<1>>} ->
+            {error, "Failed to create parse session"};
+        Other -> Other
+    end.
+
+%% @doc Feed a chunk of HTML to a streaming parse session.
+%%
+%% Sends a chunk of HTML data to an ongoing parse session. The chunk
+%% can be of any size and the HTML does not need to be complete at
+%% chunk boundaries (e.g., you can split in the middle of a tag).
+%%
+%% The parser will buffer incomplete elements internally and continue
+%% parsing as more chunks arrive.
+%%
+%% == Example ==
+%% ```
+%% {ok, Session} = lexbor_erl:parse_stream_begin(),
+%% ok = lexbor_erl:parse_stream_chunk(Session, <<"<div><p>Part 1">>),
+%% ok = lexbor_erl:parse_stream_chunk(Session, <<" Part 2</p></div>">>),
+%% {ok, Doc} = lexbor_erl:parse_stream_end(Session).
+%% '''
+%%
+%% @param SessionId Session handle returned by {@link parse_stream_begin/0}
+%% @param Chunk HTML chunk as binary or iolist
+%% @returns `ok' on success, `{error, Reason}' on failure
+-spec parse_stream_chunk(session_id(), html_bin()) -> ok | {error, term()}.
+parse_stream_chunk(SessionId, Chunk) ->
+    ChunkBin = iolist_to_binary(Chunk),
+    Req = <<SessionId:64/big-unsigned-integer, ChunkBin/binary>>,
+    %% Route by SessionId to the worker handling this session
+    case lexbor_erl_pool:call(SessionId, {<<"PARSE_STREAM_CHUNK">>, Req}) of
+        {ok, <<0>>} -> ok;
+        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
+        {ok, <<1>>} -> {error, "Invalid session or parse error"};
+        Other -> Other
+    end.
+
+%% @doc Finalize a streaming parse session and get the document.
+%%
+%% Completes the streaming parse, finalizes the DOM tree, and returns
+%% a document handle that can be used with all normal document operations
+%% like {@link select/2}, {@link outer_html/2}, etc.
+%%
+%% After calling this, the session is closed and cannot accept more chunks.
+%% The returned document must be released with {@link release/1} when done.
+%%
+%% == Example ==
+%% ```
+%% {ok, Session} = lexbor_erl:parse_stream_begin(),
+%% lists:foreach(
+%%     fun(Chunk) -> ok = lexbor_erl:parse_stream_chunk(Session, Chunk) end,
+%%     HtmlChunks
+%% ),
+%% {ok, Doc} = lexbor_erl:parse_stream_end(Session),
+%% {ok, Nodes} = lexbor_erl:select(Doc, <<"p">>),
+%% ok = lexbor_erl:release(Doc).
+%% '''
+%%
+%% @param SessionId Session handle returned by {@link parse_stream_begin/0}
+%% @returns `{ok, DocId}' with document handle, or `{error, Reason}'
+-spec parse_stream_end(session_id()) -> result(doc_id()).
+parse_stream_end(SessionId) ->
+    Req = <<SessionId:64/big-unsigned-integer>>,
+    %% Route by SessionId to the worker handling this session
+    case lexbor_erl_pool:call(SessionId, {<<"PARSE_STREAM_END">>, Req}) of
+        {ok, <<0, DocId:64/big-unsigned-integer>>} ->
+            {ok, DocId};
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        {ok, <<1>>} ->
+            {error, "Invalid session or finalization error"};
         Other -> Other
     end.
 
