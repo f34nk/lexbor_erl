@@ -1,3 +1,21 @@
+%% @doc Worker pool coordinator for lexbor_erl.
+%%
+%% This module manages a pool of worker processes and routes requests to them.
+%% It implements intelligent routing based on operation type:
+%% <ul>
+%%   <li>Stateless operations: Time-based hash distribution across workers</li>
+%%   <li>New documents: Assigned to worker via time-based selection</li>
+%%   <li>Stateful operations: Routed by DocId to ensure same worker</li>
+%% </ul>
+%%
+%% The pool uses DocId encoding to embed worker information, allowing
+%% stateful operations to automatically route to the correct worker.
+%%
+%% Workers are discovered dynamically by registered name, allowing them to
+%% be supervised independently. This provides fault isolation - if a worker
+%% crashes, only that worker restarts.
+%%
+%% @end
 -module(lexbor_erl_pool).
 -behaviour(gen_server).
 
@@ -14,10 +32,17 @@
 %% Public API
 %% ===================================================================
 
+%% @doc Start the pool coordinator.
+%%
+%% @param PoolSize Number of workers in the pool
+%% @returns `{ok, Pid}' on success
 -spec start_link(pos_integer()) -> {ok, pid()} | {error, term()}.
 start_link(PoolSize) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [PoolSize], []).
 
+%% @doc Check if the pool is alive and has at least one worker.
+%%
+%% @returns `true' if at least one worker is available, `false' otherwise
 -spec alive() -> boolean().
 alive() ->
     whereis(?SERVER) =/= undefined andalso
@@ -26,6 +51,9 @@ alive() ->
         _ -> false
     end.
 
+%% @doc Get the configured pool size.
+%%
+%% @returns Number of workers in the pool
 -spec get_pool_size() -> pos_integer().
 get_pool_size() ->
     gen_server:call(?SERVER, get_pool_size).
@@ -113,7 +141,7 @@ get_worker_and_payload(Key, Payload) ->
     Workers = gen_server:call(?SERVER, get_workers),
     {Index, ReturnWorkerId, DecodedPayload} = case Key of
         undefined ->
-            % Stateless operation - round-robin based on current time
+            % Stateless operation - time-based hash distribution
             {erlang:phash2(erlang:monotonic_time(), length(Workers)), undefined, undefined};
         {new_doc, WorkerId} ->
             % New document on specific worker

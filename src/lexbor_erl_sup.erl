@@ -1,3 +1,18 @@
+%% @doc Top-level supervisor for lexbor_erl application.
+%%
+%% This supervisor manages both the pool coordinator and all worker processes
+%% using a `one_for_one' strategy. This provides:
+%% <ul>
+%%   <li>Individual worker restart: Only crashed worker restarts</li>
+%%   <li>Fault isolation: Worker crashes don't affect other workers</li>
+%%   <li>Limited blast radius: Only documents on crashed worker are lost</li>
+%%   <li>Automatic recovery: Workers rejoin pool after restart</li>
+%% </ul>
+%%
+%% The pool coordinator is started first, followed by all worker processes.
+%% Each worker is supervised independently.
+%%
+%% @end
 -module(lexbor_erl_sup).
 -behaviour(supervisor).
 
@@ -9,6 +24,12 @@
 %% Public API
 %% ===================================================================
 
+%% @doc Start the supervisor with the specified pool size.
+%%
+%% Creates the pool coordinator and all worker processes.
+%%
+%% @param PoolSize Number of worker processes to create
+%% @returns `{ok, Pid}' on success
 -spec start_link(pos_integer()) -> {ok, pid()} | {error, term()}.
 start_link(PoolSize) ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, [PoolSize]).

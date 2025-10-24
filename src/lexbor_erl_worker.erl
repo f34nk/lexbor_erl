@@ -1,3 +1,19 @@
+%% @doc Individual worker process managing a Lexbor C port.
+%%
+%% Each worker manages an independent C port process that communicates with
+%% the Lexbor library. Workers are:
+%% <ul>
+%%   <li>Single-threaded: Process one request at a time</li>
+%%   <li>Isolated: Have their own document registry</li>
+%%   <li>Supervised: Restarted independently if they crash</li>
+%%   <li>Registered: Can be discovered by name</li>
+%% </ul>
+%%
+%% Workers register themselves with a unique name based on their worker ID,
+%% allowing the pool to discover them dynamically and enabling independent
+%% supervision.
+%%
+%% @end
 -module(lexbor_erl_worker).
 -behaviour(gen_server).
 
@@ -13,15 +29,30 @@
 %% Public API
 %% ===================================================================
 
+%% @doc Start a worker and register it with a unique name.
+%%
+%% The worker opens a port to the Lexbor C executable and registers itself
+%% as `lexbor_erl_worker_N' where N is the WorkerId.
+%%
+%% @param WorkerId Unique identifier for this worker (1..PoolSize)
+%% @returns `{ok, Pid}' on success, `{error, Reason}' on failure
 -spec start_link(pos_integer()) -> {ok, pid()} | {error, term()}.
 start_link(WorkerId) ->
     gen_server:start_link({local, worker_name(WorkerId)}, ?MODULE, [WorkerId], []).
 
-%% Generate registered name for worker
+%% @doc Generate the registered name for a worker.
+%%
+%% @param WorkerId Worker identifier
+%% @returns Atom name like `lexbor_erl_worker_1'
 worker_name(WorkerId) ->
     list_to_atom("lexbor_erl_worker_" ++ integer_to_list(WorkerId)).
 
-%% Public call: send {CmdTag, PayloadBin} framed with {packet,4}
+%% @doc Send a command to a worker and wait for reply.
+%%
+%% @param Worker Worker process PID
+%% @param CmdTag Command tag (e.g., "PARSE_DOC")
+%% @param Payload Binary payload for the command
+%% @returns `{ok, Binary}' with reply data, or `{error, Reason}'
 -spec call(pid(), binary(), binary()) -> {ok, binary()} | {error, term()}.
 call(Worker, CmdTag, Payload) ->
     gen_server:call(Worker, {call, CmdTag, Payload}, infinity).
