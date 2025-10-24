@@ -18,7 +18,7 @@ test-c:
 	#
 	# Run C unit tests
 	#
-	cd c_src/build && ctest --output-on-failure
+	cd c_src/build && ctest --verbose --output-on-failure
 
 doc:
 	#
