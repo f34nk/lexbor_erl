@@ -1,7 +1,7 @@
 -module(lexbor_erl_worker).
 -behaviour(gen_server).
 
--export([start_link/1, call/3]).
+-export([start_link/1, call/3, worker_name/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {
@@ -15,7 +15,11 @@
 
 -spec start_link(pos_integer()) -> {ok, pid()} | {error, term()}.
 start_link(WorkerId) ->
-    gen_server:start_link(?MODULE, [WorkerId], []).
+    gen_server:start_link({local, worker_name(WorkerId)}, ?MODULE, [WorkerId], []).
+
+%% Generate registered name for worker
+worker_name(WorkerId) ->
+    list_to_atom("lexbor_erl_worker_" ++ integer_to_list(WorkerId)).
 
 %% Public call: send {CmdTag, PayloadBin} framed with {packet,4}
 -spec call(pid(), binary(), binary()) -> {ok, binary()} | {error, term()}.

@@ -152,7 +152,8 @@ In your `sys.config`:
   - Stateless operations (e.g., `parse_serialize/1`, `select_html/2`) use round-robin distribution
   - Stateful operations route by `DocId` to ensure the same worker handles all operations for a given document
 - **Isolation**: Each worker process is independent with its own document registry
-- **Fault tolerance**: Worker crashes are isolated and don't affect other workers or the BEAM VM
+- **Individual supervision**: Each worker is supervised independently - if one crashes, only that worker restarts
+- **Fault tolerance**: Worker crashes don't affect other workers or the BEAM VM; documents on crashed worker are lost but other workers continue serving
 
 ### Configuration
 
@@ -171,12 +172,15 @@ Or via environment variable when starting the application:
 application:set_env(lexbor_erl, pool_size, 8).
 ```
 
-### Thread Safety
+### Thread Safety and Fault Tolerance
 
 - **Safe by design**: Each worker is single-threaded, processing one request at a time
 - **No shared state**: Documents are isolated to their respective workers
 - **Concurrent operations**: Multiple workers can process different documents simultaneously
 - **Consistent routing**: A document always routes to the same worker via consistent hashing on `DocId`
+- **Individual worker restart**: If a worker crashes, only that worker is restarted by the supervisor
+- **Limited blast radius**: Worker crashes only affect documents on that specific worker
+- **Automatic recovery**: Crashed workers are automatically restarted and can accept new documents
 
 ### Performance Characteristics
 

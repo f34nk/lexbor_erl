@@ -7,7 +7,6 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-    workers :: [pid()],
     size :: pos_integer()
 }).
 
@@ -60,26 +59,30 @@ call(Key, {CmdTag, Payload}) ->
 %% ===================================================================
 
 init([PoolSize]) when PoolSize > 0 ->
-    process_flag(trap_exit, true),
-    
-    % Start worker processes
-    Workers = lists:map(fun(I) ->
-        {ok, Pid} = lexbor_erl_worker:start_link(I),
-        link(Pid),
-        Pid
-    end, lists:seq(1, PoolSize)),
-    
-    {ok, #state{workers=Workers, size=PoolSize}}.
+    % Workers are started by supervisor, we just track the pool size
+    {ok, #state{size=PoolSize}}.
 
-handle_call(get_workers, _From, #state{workers=Workers}=State) ->
+handle_call(get_workers, _From, #state{size=Size}=State) ->
+    % Look up workers by registered name
+    Workers = lists:filtermap(fun(I) ->
+        case whereis(lexbor_erl_worker:worker_name(I)) of
+            undefined -> false;
+            Pid -> {true, Pid}
+        end
+    end, lists:seq(1, Size)),
     {reply, Workers, State};
 
 handle_call(get_pool_size, _From, #state{size=Size}=State) ->
     {reply, Size, State};
 
-handle_call(alive, _From, #state{workers=Workers}=State) ->
+handle_call(alive, _From, #state{size=Size}=State) ->
     % Check if at least one worker is alive
-    Alive = lists:any(fun(Pid) -> is_process_alive(Pid) end, Workers),
+    Alive = lists:any(fun(I) ->
+        case whereis(lexbor_erl_worker:worker_name(I)) of
+            undefined -> false;
+            Pid -> is_process_alive(Pid)
+        end
+    end, lists:seq(1, Size)),
     {reply, Alive, State};
 
 handle_call(_Request, _From, State) ->
@@ -88,25 +91,11 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Pid, Reason}, #state{workers=Workers}=State) ->
-    case lists:member(Pid, Workers) of
-        true ->
-            error_logger:error_msg("lexbor_erl worker ~p died: ~p~n", [Pid, Reason]),
-            % Worker died - this is bad, let the supervisor restart us
-            {stop, {worker_died, Pid, Reason}, State};
-        false ->
-            {noreply, State}
-    end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{workers=Workers}) ->
-    % Shutdown all workers gracefully
-    [begin
-        unlink(Pid),
-        exit(Pid, shutdown)
-    end || Pid <- Workers],
+terminate(_Reason, _State) ->
+    % Workers are managed by supervisor, nothing to clean up
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

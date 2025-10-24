@@ -19,22 +19,32 @@ start_link(PoolSize) ->
 
 init([PoolSize]) ->
     SupFlags = #{
-        strategy => one_for_one,
-        intensity => 5,
-        period => 10
+        strategy => one_for_one,     % Restart only failed child
+        intensity => 5,              % Max 5 restarts
+        period => 10                 % In 10 seconds
     },
     
-    % Single child: the pool manager
-    % The pool manager itself will start and manage worker processes
-    ChildSpecs = [
+    % Pool manager coordinates workers but doesn't manage them
+    PoolSpec = #{
+        id => lexbor_erl_pool,
+        start => {lexbor_erl_pool, start_link, [PoolSize]},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [lexbor_erl_pool]
+    },
+    
+    % Each worker as a separate supervised child
+    WorkerSpecs = [
         #{
-            id => lexbor_erl_pool,
-            start => {lexbor_erl_pool, start_link, [PoolSize]},
+            id => {lexbor_erl_worker, I},
+            start => {lexbor_erl_worker, start_link, [I]},
             restart => permanent,
             shutdown => 5000,
             type => worker,
-            modules => [lexbor_erl_pool]
-        }
+            modules => [lexbor_erl_worker]
+        } || I <- lists:seq(1, PoolSize)
     ],
     
-    {ok, {SupFlags, ChildSpecs}}.
+    % Start pool manager first, then workers
+    {ok, {SupFlags, [PoolSpec | WorkerSpecs]}}.
