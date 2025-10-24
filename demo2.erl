@@ -1,4 +1,4 @@
--module(test_unicode).
+-module(demo2).
 -export([run/0]).
 
 run() ->

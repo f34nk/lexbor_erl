@@ -1,3 +1,5 @@
+.PHONY: all compile test doc clean demo
+
 all: compile test
 
 compile: clean
@@ -10,18 +12,16 @@ doc:
 	rm -rf doc && rebar3 edoc
 
 clean:
-	rm -rf c_src/build && rebar3 clean
+	rm -rf c_src/build _build doc erl_crash.dump && rebar3 clean
 
-shell: clean compile
+demo: clean compile
 	#
-	# Debug test
+	# Basic demo
 	#
-	erlc -o . debug_test.erl && erl -pa _build/default/lib/lexbor_erl/ebin -noshell -eval 'debug_test:run(), halt().'
-	rm -f debug_test.beam
+	erlc -o . demo1.erl && erl -pa _build/default/lib/lexbor_erl/ebin -noshell -eval 'demo1:run(), halt().'
+	rm -f demo1.beam
 	#
-	# Unicode test
+	# Unicode demo
 	#
-	erlc -o . test_unicode.erl && erl -pa _build/default/lib/lexbor_erl/ebin -noshell -eval 'test_unicode:run(), halt().'
-	rm -f test_unicode.beam
-
-.PHONY: all test clean
+	erlc -o . demo2.erl && erl -pa _build/default/lib/lexbor_erl/ebin -noshell -eval 'demo2:run(), halt().'
+	rm -f demo2.beam

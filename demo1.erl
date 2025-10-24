@@ -1,4 +1,4 @@
--module(debug_test).
+-module(demo1).
 -export([run/0]).
 
 run() ->
