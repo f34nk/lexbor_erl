@@ -46,7 +46,7 @@ jobs:
     - name: Install lexbor library (Ubuntu)
       if: runner.os == 'Linux'
       run: |
-        git clone --depth 1 --branch v2.3.0 https://github.com/lexbor/lexbor.git /tmp/lexbor
+        git clone --depth 1 --branch v2.6.0 https://github.com/lexbor/lexbor.git /tmp/lexbor
         cd /tmp/lexbor
         cmake -B build -DCMAKE_BUILD_TYPE=Release
         cmake --build build
