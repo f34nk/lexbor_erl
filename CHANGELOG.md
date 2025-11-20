@@ -1,6 +1,7 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [Released] - 0.1.0
+- Published to hex.pm: https://hex.pm/packages/lexbor_erl
 
 ## [Unreleased] - Bug in DOM maniplation
 

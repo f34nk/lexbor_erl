@@ -1,11 +1,40 @@
-{application, lexbor_erl,
- [{description, "Erlang wrapper for Lexbor HTML via a port"},
-  {vsn, "0.0.1"},
+{application,
+ lexbor_erl,
+ [%% Basic metadata
+  {description,
+   "Fast HTML5 parser with DOM manipulation, CSS selectors, and streaming support via Lexbor C library"},
+  {vsn, "0.1.0"},
   {registered, [lexbor_erl_pool, lexbor_erl_sup]},
   {mod, {lexbor_erl_app, []}},
   {applications, [kernel, stdlib]},
-  {env, [
-      {pool_size, 4},        % Number of parallel worker processes (default: 4)
-      {op_timeout_ms, 3000}  % Timeout for port operations in milliseconds
-  ]}
- ]}.
+  {env,
+   [{pool_size, 4},        % Number of parallel worker processes
+    {op_timeout_ms, 3000}]},  % Timeout for port operations in milliseconds
+  %% Hex.pm specific metadata
+  {licenses, ["LGPL-2.1-or-later"]},
+  {links,
+   [{"GitHub", "https://github.com/f34nk/lexbor_erl"},
+    {"Lexbor C Library", "https://github.com/lexbor/lexbor"},
+    {"Documentation", "https://hexdocs.pm/lexbor_erl/"},
+    {"Changelog", "https://github.com/f34nk/lexbor_erl/blob/main/CHANGELOG.md"}]},
+  %% Package contents - files to include in the hex package
+  {files,
+   ["src",
+    "c_src/*.c",
+    "c_src/*.h",
+    "c_src/CMakeLists.txt",
+    "c_src/build.sh",
+    "priv",
+    "include",
+    "rebar.config",
+    "rebar.lock",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+    "Makefile"]},
+  %% Build requirements
+  {build_tools, ["rebar3", "make", "cmake"]},
+  %% System requirements (informational)
+  {extra_applications, []},
+  %% Package keywords for discoverability
+  {pkg_name, lexbor_erl}]}.

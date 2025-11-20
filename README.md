@@ -185,7 +185,7 @@ application:set_env(lexbor_erl, pool_size, 8).
 
 ## License
 
-Apache 2.0
+LGPL-2.1-or-later
 
 ## Credits
 

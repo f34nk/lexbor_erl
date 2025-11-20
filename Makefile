@@ -4,6 +4,13 @@ EXAMPLES:=$(foreach x,$(X),$(x))
 .PHONY: all
 all: clean compile test-c test examples
 
+.PHONY: install
+install:
+	#
+	# Install plugins
+	#
+	rebar3 plugins upgrade --all
+
 .PHONY: compile
 compile:
 	#
@@ -25,20 +32,27 @@ test-c:
 	#
 	cd c_src/build && ctest --verbose --output-on-failure
 
+.PHONY: format
+format:
+	@ERL_FLAGS="-enable-feature maybe_expr" rebar3 format
+
+.PHONY: format-verify
+format-verify:
+	@ERL_FLAGS="-enable-feature maybe_expr" rebar3 format --verify
+
 .PHONY: doc
 doc:
 	#
 	# Generate documentation
 	#
-	rm -rf doc && rebar3 edoc
+	rm -rf doc && rebar3 ex_doc
 	
 .PHONY: clean
 clean:
 	#
 	# Clean
 	#
-	rm -rf c_src/build _build build .cache priv doc erl_crash.dump examples/*.beam examples/*.dump && \
-	rebar3 clean
+	rm -rf c_src/build _build build .cache priv doc erl_crash.dump examples/*.beam examples/*.dump
 
 .PHONY: examples
 examples: $(EXAMPLES)
@@ -82,3 +96,23 @@ docker/clean:
 	#
 	docker rm -f test >/dev/null 2>&1 || true
 	docker rmi -f test >/dev/null 2>&1 || true
+
+.PHONY: publish/build
+publish/build: compile
+	#
+	# hex build
+	#
+	rebar3 hex build
+	#
+	# hex publish --dry-run
+	#
+	rebar3 hex publish --dry-run
+	tree _build/default/lib/lexbor_erl
+
+.PHONY: publish/release
+publish/release: _build/default/lib/lexbor_erl
+	#
+	# hex publish release
+	#
+	rebar3 hex publish
+	
