@@ -964,7 +964,11 @@ static int op_set_inner_html(const unsigned char *payload, uint32_t plen,
                 lxb_dom_node_t *next = temp_child->next;
                 lxb_dom_node_remove(temp_child);
                 
-                /* Change owner document recursively for the entire subtree */
+                /* Append to target */
+                lxb_dom_node_insert_child(node, temp_child);
+                
+                /* Change owner document recursively for the entire subtree 
+                 * AFTER insertion, in case lxb_dom_node_insert_child modifies it */
                 lxb_dom_node_t *walk = temp_child;
                 while (walk) {
                     walk->owner_document = node->owner_document;
@@ -984,8 +988,6 @@ static int op_set_inner_html(const unsigned char *payload, uint32_t plen,
                     }
                 }
                 
-                /* Append to target */
-                lxb_dom_node_insert_child(node, temp_child);
                 temp_child = next;
             }
         }
