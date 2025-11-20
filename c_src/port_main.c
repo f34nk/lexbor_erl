@@ -964,8 +964,25 @@ static int op_set_inner_html(const unsigned char *payload, uint32_t plen,
                 lxb_dom_node_t *next = temp_child->next;
                 lxb_dom_node_remove(temp_child);
                 
-                /* Change owner document */
-                temp_child->owner_document = node->owner_document;
+                /* Change owner document recursively for the entire subtree */
+                lxb_dom_node_t *walk = temp_child;
+                while (walk) {
+                    walk->owner_document = node->owner_document;
+                    if (walk->first_child) {
+                        walk = walk->first_child;
+                    } else if (walk->next) {
+                        walk = walk->next;
+                    } else {
+                        while (walk && !walk->next) {
+                            walk = walk->parent;
+                            if (walk == temp_child) {
+                                walk = NULL;
+                                break;
+                            }
+                        }
+                        if (walk) walk = walk->next;
+                    }
+                }
                 
                 /* Append to target */
                 lxb_dom_node_insert_child(node, temp_child);
