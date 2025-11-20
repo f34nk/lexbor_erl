@@ -1,0 +1,44 @@
+# Dockerfile for testing lexbor_erl in Ubuntu environment
+# Mirrors the GitHub Actions CI environment
+
+# Use official Erlang image based on Ubuntu
+FROM erlang:27.0
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    curl \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install rebar3
+RUN curl -fsSL https://s3.amazonaws.com/rebar3/rebar3 -o /usr/local/bin/rebar3 && \
+    chmod +x /usr/local/bin/rebar3
+
+# Install lexbor v2.6.0 from source
+RUN cd /tmp && \
+    curl -L https://github.com/lexbor/lexbor/archive/refs/tags/v2.6.0.tar.gz -o lexbor.tar.gz && \
+    tar -xzf lexbor.tar.gz && \
+    cd lexbor-2.6.0 && \
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build build && \
+    cmake --install build && \
+    cd / && \
+    rm -rf /tmp/lexbor*
+
+# Set up library path for lexbor
+ENV LD_LIBRARY_PATH=/usr/local/lib
+
+# Create working directory
+WORKDIR /workspace
+
+# Copy project files
+COPY . /workspace/
+
+# Default command: run all tests
+# CMD ["make"]

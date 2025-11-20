@@ -1,0 +1,33 @@
+# Build artifacts
+_build/
+.rebar3/
+priv/
+c_src/build/
+*.beam
+*.o
+*.so
+*.dylib
+erl_crash.dump
+
+# Test logs
+___dev/06-ci/
+
+# Git
+.git/
+.gitignore
+
+# Documentation build
+doc/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
