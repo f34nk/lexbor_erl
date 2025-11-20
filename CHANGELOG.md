@@ -2,7 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+## [Unreleased] - Memory leak in DOM maniplation
+
+### Fixed
+- Critical memory leak in `set_inner_html/3` - refactored to use `lxb_dom_document_import_node` API to properly copy node data to target document's memory pool, preventing use-after-free when temporary document is destroyed 
 
 ## [Unreleased] - Chunk Based Streaming Parser
 
