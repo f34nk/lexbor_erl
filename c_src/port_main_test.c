@@ -554,6 +554,376 @@ TEST(html_serialize_simple) {
 }
 
 /* ========================================================================
+ * DOM Manipulation Tests
+ * ======================================================================== */
+
+/* Test get_attribute */
+TEST(dom_get_attribute) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<a href='/test' class='link' id='main'>Link</a>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *link_node = body->first_child;
+    ASSERT(link_node != NULL);
+    lxb_dom_element_t *link = lxb_dom_interface_element(link_node);
+    
+    // Get href attribute
+    size_t attr_len;
+    const lxb_char_t *href = lxb_dom_element_get_attribute(link, 
+        (const lxb_char_t*)"href", 4, &attr_len);
+    ASSERT(href != NULL);
+    ASSERT_EQ(attr_len, 5);
+    ASSERT(memcmp(href, "/test", 5) == 0);
+    
+    // Get class attribute
+    const lxb_char_t *cls = lxb_dom_element_get_attribute(link,
+        (const lxb_char_t*)"class", 5, &attr_len);
+    ASSERT(cls != NULL);
+    ASSERT_EQ(attr_len, 4);
+    ASSERT(memcmp(cls, "link", 4) == 0);
+    
+    // Get non-existent attribute
+    const lxb_char_t *missing = lxb_dom_element_get_attribute(link,
+        (const lxb_char_t*)"data-test", 9, &attr_len);
+    ASSERT(missing == NULL);
+    
+    lxb_html_document_destroy(doc);
+}
+
+/* Test set_attribute */
+TEST(dom_set_attribute) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<div id='test'>Content</div>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *div_node = body->first_child;
+    ASSERT(div_node != NULL);
+    lxb_dom_element_t *div = lxb_dom_interface_element(div_node);
+    
+    // Set new attribute
+    lxb_dom_attr_t *attr = lxb_dom_element_set_attribute(div,
+        (const lxb_char_t*)"class", 5,
+        (const lxb_char_t*)"active", 6);
+    ASSERT(attr != NULL);
+    
+    // Verify attribute was set
+    size_t attr_len;
+    const lxb_char_t *cls = lxb_dom_element_get_attribute(div,
+        (const lxb_char_t*)"class", 5, &attr_len);
+    ASSERT(cls != NULL);
+    ASSERT_EQ(attr_len, 6);
+    ASSERT(memcmp(cls, "active", 6) == 0);
+    
+    // Update existing attribute
+    attr = lxb_dom_element_set_attribute(div,
+        (const lxb_char_t*)"id", 2,
+        (const lxb_char_t*)"updated", 7);
+    ASSERT(attr != NULL);
+    
+    const lxb_char_t *id = lxb_dom_element_get_attribute(div,
+        (const lxb_char_t*)"id", 2, &attr_len);
+    ASSERT(id != NULL);
+    ASSERT_EQ(attr_len, 7);
+    ASSERT(memcmp(id, "updated", 7) == 0);
+    
+    lxb_html_document_destroy(doc);
+}
+
+/* Test remove_attribute */
+TEST(dom_remove_attribute) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<div id='test' class='active' data-value='123'>Content</div>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *div_node = body->first_child;
+    ASSERT(div_node != NULL);
+    lxb_dom_element_t *div = lxb_dom_interface_element(div_node);
+    
+    // Verify attribute exists
+    size_t attr_len;
+    const lxb_char_t *cls = lxb_dom_element_get_attribute(div,
+        (const lxb_char_t*)"class", 5, &attr_len);
+    ASSERT(cls != NULL);
+    
+    // Remove attribute
+    lxb_status_t status = lxb_dom_element_remove_attribute(div,
+        (const lxb_char_t*)"class", 5);
+    ASSERT(status == LXB_STATUS_OK);
+    
+    // Verify attribute is gone
+    cls = lxb_dom_element_get_attribute(div,
+        (const lxb_char_t*)"class", 5, &attr_len);
+    ASSERT(cls == NULL);
+    
+    // Other attributes should still exist
+    const lxb_char_t *id = lxb_dom_element_get_attribute(div,
+        (const lxb_char_t*)"id", 2, &attr_len);
+    ASSERT(id != NULL);
+    
+    lxb_html_document_destroy(doc);
+}
+
+/* Test get_text */
+TEST(dom_get_text) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<div>Hello <b>World</b>!</div>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *div_node = body->first_child;
+    ASSERT(div_node != NULL);
+    lxb_dom_element_t *div = lxb_dom_interface_element(div_node);
+    
+    // Get text content (includes text from child elements)
+    size_t text_len;
+    const lxb_char_t *text = lxb_dom_node_text_content(
+        lxb_dom_interface_node(div), &text_len);
+    ASSERT(text != NULL);
+    ASSERT(text_len > 0);
+    ASSERT(memcmp(text, "Hello World!", 12) == 0);
+    
+    lxb_html_document_destroy(doc);
+}
+
+/* Test set_text */
+TEST(dom_set_text) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<div>Old <b>content</b></div>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *div_node = body->first_child;
+    ASSERT(div_node != NULL);
+    lxb_dom_element_t *div = lxb_dom_interface_element(div_node);
+    
+    // Set new text content
+    const char *new_text = "New text";
+    lxb_status_t status = lxb_dom_node_text_content_set(
+        lxb_dom_interface_node(div),
+        (const lxb_char_t*)new_text, strlen(new_text));
+    ASSERT(status == LXB_STATUS_OK);
+    
+    // Verify text was updated
+    size_t text_len;
+    const lxb_char_t *text = lxb_dom_node_text_content(
+        lxb_dom_interface_node(div), &text_len);
+    ASSERT(text != NULL);
+    ASSERT_EQ(text_len, 8);
+    ASSERT(memcmp(text, "New text", 8) == 0);
+    
+    lxb_html_document_destroy(doc);
+}
+
+/* Test inner_html (via serialization) */
+TEST(dom_inner_html) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<div><p>First</p><p>Second</p></div>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *div_node = body->first_child;
+    ASSERT(div_node != NULL);
+    lxb_dom_element_t *div = lxb_dom_interface_element(div_node);
+    
+    // Serialize child nodes
+    sbuf_t buf = {NULL, 0, 0};
+    lxb_dom_node_t *child = lxb_dom_interface_node(div)->first_child;
+    while (child) {
+        lxb_status_t status = lxb_html_serialize_tree_cb(child, sink_cb, &buf);
+        ASSERT(status == LXB_STATUS_OK);
+        child = child->next;
+    }
+    
+    ASSERT(buf.len > 0);
+    ASSERT(memmem(buf.ptr, buf.len, "<p>First</p>", 12) != NULL);
+    ASSERT(memmem(buf.ptr, buf.len, "<p>Second</p>", 13) != NULL);
+    
+    free(buf.ptr);
+    lxb_html_document_destroy(doc);
+}
+
+/* Test create_element */
+TEST(dom_create_element) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    lxb_html_document_parse(doc, (const lxb_char_t*)"<html><body></body></html>", 26);
+    
+    // Create new element
+    lxb_dom_element_t *div = lxb_dom_document_create_element(
+        lxb_dom_interface_document(doc),
+        (const lxb_char_t*)"div", 3, NULL);
+    ASSERT(div != NULL);
+    
+    // Verify element type - just check it's not null
+    lxb_dom_node_t *node = lxb_dom_interface_node(div);
+    ASSERT(node != NULL);
+    ASSERT(node->local_name > 0);
+    
+    // Create another element type
+    lxb_dom_element_t *span = lxb_dom_document_create_element(
+        lxb_dom_interface_document(doc),
+        (const lxb_char_t*)"span", 4, NULL);
+    ASSERT(span != NULL);
+    
+    lxb_html_document_destroy(doc);
+}
+
+/* Test append_child */
+TEST(dom_append_child) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<ul id='list'></ul>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *ul_node = body->first_child;
+    ASSERT(ul_node != NULL);
+    lxb_dom_element_t *ul = lxb_dom_interface_element(ul_node);
+    
+    // Create and append first item
+    lxb_dom_element_t *li1 = lxb_dom_document_create_element(
+        lxb_dom_interface_document(doc),
+        (const lxb_char_t*)"li", 2, NULL);
+    ASSERT(li1 != NULL);
+    
+    lxb_dom_node_insert_child(lxb_dom_interface_node(ul),
+                              lxb_dom_interface_node(li1));
+    
+    // Verify child was appended
+    lxb_dom_node_t *first_child = lxb_dom_interface_node(ul)->first_child;
+    ASSERT(first_child == lxb_dom_interface_node(li1));
+    
+    // Append second item
+    lxb_dom_element_t *li2 = lxb_dom_document_create_element(
+        lxb_dom_interface_document(doc),
+        (const lxb_char_t*)"li", 2, NULL);
+    lxb_dom_node_insert_child(lxb_dom_interface_node(ul),
+                              lxb_dom_interface_node(li2));
+    
+    // Verify second child
+    ASSERT(lxb_dom_interface_node(li1)->next == lxb_dom_interface_node(li2));
+    
+    lxb_html_document_destroy(doc);
+}
+
+/* Test insert_before */
+TEST(dom_insert_before) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<ul><li id='second'>Second</li></ul>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *ul_node = body->first_child;
+    ASSERT(ul_node != NULL);
+    lxb_dom_element_t *ul = lxb_dom_interface_element(ul_node);
+    lxb_dom_node_t *second_node = ul_node->first_child;
+    ASSERT(second_node != NULL);
+    lxb_dom_element_t *second = lxb_dom_interface_element(second_node);
+    
+    // Create first item
+    lxb_dom_element_t *first = lxb_dom_document_create_element(
+        lxb_dom_interface_document(doc),
+        (const lxb_char_t*)"li", 2, NULL);
+    ASSERT(first != NULL);
+    
+    // Insert before second
+    lxb_dom_node_insert_before(lxb_dom_interface_node(second),
+                               lxb_dom_interface_node(first));
+    
+    // Verify order
+    lxb_dom_node_t *first_child = lxb_dom_interface_node(ul)->first_child;
+    ASSERT(first_child == lxb_dom_interface_node(first));
+    ASSERT(first_child->next == lxb_dom_interface_node(second));
+    
+    lxb_html_document_destroy(doc);
+}
+
+/* Test remove_node */
+TEST(dom_remove_node) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<div><p id='remove'>Remove</p><p id='keep'>Keep</p></div>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *div_node = body->first_child;
+    ASSERT(div_node != NULL);
+    lxb_dom_element_t *div = lxb_dom_interface_element(div_node);
+    lxb_dom_node_t *remove_p_node = div_node->first_child;
+    ASSERT(remove_p_node != NULL);
+    lxb_dom_element_t *remove_p = lxb_dom_interface_element(remove_p_node);
+    lxb_dom_node_t *keep_p_node = remove_p_node->next;
+    ASSERT(keep_p_node != NULL);
+    lxb_dom_element_t *keep_p = lxb_dom_interface_element(keep_p_node);
+    
+    // Remove first paragraph
+    lxb_dom_node_remove(remove_p_node);
+    
+    // Verify it's gone and second remains
+    lxb_dom_node_t *first_node = div_node->first_child;
+    ASSERT(first_node == keep_p_node);
+    ASSERT(first_node->next == NULL);
+    
+    lxb_html_document_destroy(doc);
+}
+
+/* Test complex DOM building */
+TEST(dom_complex_building) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    const char *html = "<div id='container'></div>";
+    lxb_html_document_parse(doc, (const lxb_char_t*)html, strlen(html));
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc->body);
+    lxb_dom_node_t *container_node = body->first_child;
+    ASSERT(container_node != NULL);
+    lxb_dom_element_t *container = lxb_dom_interface_element(container_node);
+    
+    // Create header
+    lxb_dom_element_t *h1 = lxb_dom_document_create_element(
+        lxb_dom_interface_document(doc),
+        (const lxb_char_t*)"h1", 2, NULL);
+    lxb_dom_element_set_attribute(h1,
+        (const lxb_char_t*)"class", 5,
+        (const lxb_char_t*)"title", 5);
+    lxb_dom_node_text_content_set(lxb_dom_interface_node(h1),
+        (const lxb_char_t*)"Page Title", 10);
+    lxb_dom_node_insert_child(lxb_dom_interface_node(container),
+                              lxb_dom_interface_node(h1));
+    
+    // Create section
+    lxb_dom_element_t *section = lxb_dom_document_create_element(
+        lxb_dom_interface_document(doc),
+        (const lxb_char_t*)"section", 7, NULL);
+    lxb_dom_node_insert_child(lxb_dom_interface_node(container),
+                              lxb_dom_interface_node(section));
+    
+    // Create paragraph
+    lxb_dom_element_t *p = lxb_dom_document_create_element(
+        lxb_dom_interface_document(doc),
+        (const lxb_char_t*)"p", 1, NULL);
+    lxb_dom_node_text_content_set(lxb_dom_interface_node(p),
+        (const lxb_char_t*)"Content", 7);
+    lxb_dom_node_insert_child(lxb_dom_interface_node(section),
+                              lxb_dom_interface_node(p));
+    
+    // Verify structure
+    ASSERT(container_node->first_child == lxb_dom_interface_node(h1));
+    ASSERT(lxb_dom_interface_node(h1)->next == lxb_dom_interface_node(section));
+    ASSERT(lxb_dom_interface_node(section)->first_child == lxb_dom_interface_node(p));
+    
+    // Verify serialization
+    sbuf_t buf = {NULL, 0, 0};
+    lxb_status_t status = lxb_html_serialize_tree_cb(
+        lxb_dom_interface_node(doc), sink_cb, &buf);
+    ASSERT(status == LXB_STATUS_OK);
+    ASSERT(memmem(buf.ptr, buf.len, "Page Title", 10) != NULL);
+    ASSERT(memmem(buf.ptr, buf.len, "Content", 7) != NULL);
+    
+    free(buf.ptr);
+    lxb_html_document_destroy(doc);
+}
+
+/* ========================================================================
  * Test Runner
  * ======================================================================== */
 
@@ -598,6 +968,23 @@ int main(void) {
     RUN_TEST(html_parse_nested);
     RUN_TEST(html_parse_malformed);
     RUN_TEST(html_serialize_simple);
+    
+    /* DOM manipulation tests - attributes */
+    RUN_TEST(dom_get_attribute);
+    RUN_TEST(dom_set_attribute);
+    RUN_TEST(dom_remove_attribute);
+    
+    /* DOM manipulation tests - text and HTML */
+    RUN_TEST(dom_get_text);
+    RUN_TEST(dom_set_text);
+    RUN_TEST(dom_inner_html);
+    
+    /* DOM manipulation tests - node creation and tree manipulation */
+    RUN_TEST(dom_create_element);
+    RUN_TEST(dom_append_child);
+    RUN_TEST(dom_insert_before);
+    RUN_TEST(dom_remove_node);
+    RUN_TEST(dom_complex_building);
     
     /* Clean up document registry */
     if (docs) {

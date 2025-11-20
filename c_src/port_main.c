@@ -487,6 +487,650 @@ static int select_outer_html(lxb_html_document_t *doc,
     return 1;
 }
 
+/* ---------- Helper functions for DOM manipulation ---------- */
+
+/* Read uint64 from big-endian bytes */
+static uint64_t read_uint64(const unsigned char *buf) {
+    return ((uint64_t)buf[0] << 56) | ((uint64_t)buf[1] << 48) |
+           ((uint64_t)buf[2] << 40) | ((uint64_t)buf[3] << 32) |
+           ((uint64_t)buf[4] << 24) | ((uint64_t)buf[5] << 16) |
+           ((uint64_t)buf[6] << 8)  | ((uint64_t)buf[7]);
+}
+
+/* Write uint64 to big-endian bytes */
+static void write_uint64(unsigned char *buf, uint64_t val) {
+    buf[0] = (val >> 56) & 0xFF;
+    buf[1] = (val >> 48) & 0xFF;
+    buf[2] = (val >> 40) & 0xFF;
+    buf[3] = (val >> 32) & 0xFF;
+    buf[4] = (val >> 24) & 0xFF;
+    buf[5] = (val >> 16) & 0xFF;
+    buf[6] = (val >> 8) & 0xFF;
+    buf[7] = val & 0xFF;
+}
+
+/* Read uint32 from big-endian bytes */
+static uint32_t read_uint32(const unsigned char *buf) {
+    return ((uint32_t)buf[0] << 24) | ((uint32_t)buf[1] << 16) |
+           ((uint32_t)buf[2] << 8)  | ((uint32_t)buf[3]);
+}
+
+/* Write uint32 to big-endian bytes */
+static void write_uint32(unsigned char *buf, uint32_t val) {
+    buf[0] = (val >> 24) & 0xFF;
+    buf[1] = (val >> 16) & 0xFF;
+    buf[2] = (val >> 8) & 0xFF;
+    buf[3] = val & 0xFF;
+}
+
+/* Create error response */
+static int error_response(const char *msg, unsigned char **out, uint32_t *outlen) {
+    size_t len = strlen(msg);
+    unsigned char *buf = (unsigned char*)malloc(1 + len);
+    if (!buf) return 0;
+    buf[0] = 1;  /* Error marker */
+    memcpy(buf + 1, msg, len);
+    *out = buf;
+    *outlen = 1 + len;
+    return 1;
+}
+
+/* ---------- DOM Manipulation Operations ---------- */
+
+/* GET_ATTRIBUTE: Get attribute value from element */
+static int op_get_attribute(const unsigned char *payload, uint32_t plen,
+                            unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8 + 4) return 0;
+    
+    /* Payload: <<DocId:64, NodeHandle:64, AttrNameLen:32, AttrName/binary>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t node_handle = read_uint64(payload + 8);
+    uint32_t attr_len = read_uint32(payload + 16);
+    
+    if (20 + attr_len > plen) return 0;
+    const unsigned char *attr_name = payload + 20;
+    
+    /* Find document */
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    /* Get node from handle */
+    lxb_dom_node_t *node = (lxb_dom_node_t *)(uintptr_t)node_handle;
+    
+    /* Verify node belongs to document */
+    if (node->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    /* Only works for element nodes */
+    if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
+        return error_response("not_element", out, outlen);
+    }
+    
+    lxb_dom_element_t *element = lxb_dom_interface_element(node);
+    lxb_dom_attr_t *attr = lxb_dom_element_attr_by_name(
+        element, attr_name, attr_len
+    );
+    
+    if (!attr || !attr->value) {
+        /* Attribute not found - return special marker */
+        unsigned char *buf = (unsigned char*)malloc(1);
+        if (!buf) return 0;
+        buf[0] = 2;  /* Special code for "not found" */
+        *out = buf;
+        *outlen = 1;
+        return 1;
+    }
+    
+    /* Return attribute value */
+    size_t value_len;
+    const lxb_char_t *value = lxb_dom_attr_value(attr, &value_len);
+    
+    /* Response: <<0:8, ValueLen:32, Value/binary>> */
+    uint32_t resp_len = 1 + 4 + value_len;
+    unsigned char *buf = (unsigned char*)malloc(resp_len);
+    if (!buf) return 0;
+    
+    buf[0] = 0;  /* Success */
+    write_uint32(buf + 1, value_len);
+    memcpy(buf + 5, value, value_len);
+    
+    *out = buf;
+    *outlen = resp_len;
+    return 1;
+}
+
+/* SET_ATTRIBUTE: Set attribute value on element */
+static int op_set_attribute(const unsigned char *payload, uint32_t plen,
+                            unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8 + 4) return 0;
+    
+    /* Payload: <<DocId:64, NodeHandle:64, AttrNameLen:32, AttrName/binary,
+                 ValueLen:32, Value/binary>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t node_handle = read_uint64(payload + 8);
+    uint32_t attr_len = read_uint32(payload + 16);
+    
+    if (20 + attr_len + 4 > plen) return 0;
+    const unsigned char *attr_name = payload + 20;
+    
+    uint32_t value_len = read_uint32(payload + 20 + attr_len);
+    if (24 + attr_len + value_len > plen) return 0;
+    const unsigned char *value = payload + 24 + attr_len;
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    lxb_dom_node_t *node = (lxb_dom_node_t *)(uintptr_t)node_handle;
+    
+    if (node->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
+        return error_response("not_element", out, outlen);
+    }
+    
+    lxb_dom_element_t *element = lxb_dom_interface_element(node);
+    
+    /* Set attribute */
+    lxb_dom_attr_t *attr = lxb_dom_element_set_attribute(
+        element, attr_name, attr_len, value, value_len
+    );
+    
+    if (!attr) {
+        return error_response("set_failed", out, outlen);
+    }
+    
+    /* Success response */
+    unsigned char *buf = (unsigned char*)malloc(1);
+    if (!buf) return 0;
+    buf[0] = 0;  /* Success */
+    *out = buf;
+    *outlen = 1;
+    return 1;
+}
+
+/* REMOVE_ATTRIBUTE: Remove attribute from element */
+static int op_remove_attribute(const unsigned char *payload, uint32_t plen,
+                               unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8 + 4) return 0;
+    
+    /* Payload: <<DocId:64, NodeHandle:64, AttrNameLen:32, AttrName/binary>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t node_handle = read_uint64(payload + 8);
+    uint32_t attr_len = read_uint32(payload + 16);
+    
+    if (20 + attr_len > plen) return 0;
+    const unsigned char *attr_name = payload + 20;
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    lxb_dom_node_t *node = (lxb_dom_node_t *)(uintptr_t)node_handle;
+    
+    if (node->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
+        return error_response("not_element", out, outlen);
+    }
+    
+    lxb_dom_element_t *element = lxb_dom_interface_element(node);
+    
+    /* Remove attribute */
+    lxb_status_t status = lxb_dom_element_remove_attribute(
+        element, attr_name, attr_len
+    );
+    
+    if (status != LXB_STATUS_OK) {
+        return error_response("remove_failed", out, outlen);
+    }
+    
+    /* Success response */
+    unsigned char *buf = (unsigned char*)malloc(1);
+    if (!buf) return 0;
+    buf[0] = 0;  /* Success */
+    *out = buf;
+    *outlen = 1;
+    return 1;
+}
+
+/* GET_TEXT: Get text content of a node (recursively) */
+static int op_get_text(const unsigned char *payload, uint32_t plen,
+                       unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8) return 0;
+    
+    /* Payload: <<DocId:64, NodeHandle:64>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t node_handle = read_uint64(payload + 8);
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    lxb_dom_node_t *node = (lxb_dom_node_t *)(uintptr_t)node_handle;
+    
+    if (node->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    /* Collect text content */
+    size_t text_len;
+    const lxb_char_t *text = lxb_dom_node_text_content(node, &text_len);
+    
+    if (!text && text_len > 0) {
+        return error_response("text_extraction_failed", out, outlen);
+    }
+    
+    /* Response: <<0:8, TextLen:32, Text/binary>> */
+    uint32_t resp_len = 1 + 4 + text_len;
+    unsigned char *resp = (unsigned char*)malloc(resp_len);
+    if (!resp) {
+        return 0;
+    }
+    
+    resp[0] = 0;  /* Success */
+    write_uint32(resp + 1, text_len);
+    if (text_len > 0 && text) {
+        memcpy(resp + 5, text, text_len);
+    }
+    
+    *out = resp;
+    *outlen = resp_len;
+    return 1;
+}
+
+/* SET_TEXT: Set text content of a node (replaces all children) */
+static int op_set_text(const unsigned char *payload, uint32_t plen,
+                       unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8 + 4) return 0;
+    
+    /* Payload: <<DocId:64, NodeHandle:64, TextLen:32, Text/binary>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t node_handle = read_uint64(payload + 8);
+    uint32_t text_len = read_uint32(payload + 16);
+    
+    if (20 + text_len > plen) return 0;
+    const unsigned char *text = payload + 20;
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    lxb_dom_node_t *node = (lxb_dom_node_t *)(uintptr_t)node_handle;
+    
+    if (node->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    /* Remove all child nodes first */
+    lxb_dom_node_t *child = node->first_child;
+    while (child) {
+        lxb_dom_node_t *next = child->next;
+        lxb_dom_node_remove(child);
+        lxb_dom_node_destroy(child);
+        child = next;
+    }
+    
+    /* Create and append text node */
+    if (text_len > 0) {
+        lxb_dom_document_t *doc = lxb_dom_interface_document(d->doc);
+        lxb_dom_text_t *text_node = lxb_dom_document_create_text_node(
+            doc, text, text_len
+        );
+        
+        if (!text_node) {
+            return error_response("create_text_failed", out, outlen);
+        }
+        
+        lxb_dom_node_insert_child(node, lxb_dom_interface_node(text_node));
+    }
+    
+    /* Success */
+    unsigned char *buf = (unsigned char*)malloc(1);
+    if (!buf) return 0;
+    buf[0] = 0;
+    *out = buf;
+    *outlen = 1;
+    return 1;
+}
+
+/* INNER_HTML: Get inner HTML of a node */
+static int op_inner_html(const unsigned char *payload, uint32_t plen,
+                         unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8) return 0;
+    
+    /* Payload: <<DocId:64, NodeHandle:64>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t node_handle = read_uint64(payload + 8);
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    lxb_dom_node_t *node = (lxb_dom_node_t *)(uintptr_t)node_handle;
+    
+    if (node->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    /* Serialize children */
+    sbuf_t buf = {0};
+    lxb_dom_node_t *child = node->first_child;
+    while (child) {
+        lxb_status_t status = lxb_html_serialize_tree_cb(child, sink_cb, &buf);
+        if (status != LXB_STATUS_OK) {
+            if (buf.ptr) free(buf.ptr);
+            return error_response("serialize_failed", out, outlen);
+        }
+        child = child->next;
+    }
+    
+    /* Response: <<0:8, HtmlLen:32, Html/binary>> */
+    uint32_t resp_len = 1 + 4 + buf.len;
+    unsigned char *resp = (unsigned char*)malloc(resp_len);
+    if (!resp) {
+        if (buf.ptr) free(buf.ptr);
+        return 0;
+    }
+    
+    resp[0] = 0;
+    write_uint32(resp + 1, buf.len);
+    if (buf.len > 0) {
+        memcpy(resp + 5, buf.ptr, buf.len);
+    }
+    if (buf.ptr) free(buf.ptr);
+    
+    *out = resp;
+    *outlen = resp_len;
+    return 1;
+}
+
+/* SET_INNER_HTML: Set inner HTML of a node (parses and replaces children) */
+static int op_set_inner_html(const unsigned char *payload, uint32_t plen,
+                              unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8 + 4) return 0;
+    
+    /* Payload: <<DocId:64, NodeHandle:64, HtmlLen:32, Html/binary>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t node_handle = read_uint64(payload + 8);
+    uint32_t html_len = read_uint32(payload + 16);
+    
+    if (20 + html_len > plen) return 0;
+    const unsigned char *html = payload + 20;
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    lxb_dom_node_t *node = (lxb_dom_node_t *)(uintptr_t)node_handle;
+    
+    if (node->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) {
+        return error_response("not_element", out, outlen);
+    }
+    
+    lxb_dom_element_t *element = lxb_dom_interface_element(node);
+    
+    /* Remove all existing children */
+    lxb_dom_node_t *child = node->first_child;
+    while (child) {
+        lxb_dom_node_t *next = child->next;
+        lxb_dom_node_remove(child);
+        lxb_dom_node_destroy(child);
+        child = next;
+    }
+    
+    /* Parse new HTML into a temporary document fragment */
+    if (html_len > 0) {
+        lxb_html_document_t *temp_doc = lxb_html_document_create();
+        if (!temp_doc) {
+            return error_response("create_temp_doc_failed", out, outlen);
+        }
+        
+        lxb_status_t status = lxb_html_document_parse(temp_doc, html, html_len);
+        if (status != LXB_STATUS_OK) {
+            lxb_html_document_destroy(temp_doc);
+            return error_response("parse_html_failed", out, outlen);
+        }
+        
+        /* Move parsed nodes from temp document body to target element */
+        lxb_dom_node_t *body = lxb_dom_interface_node(temp_doc->body);
+        if (body) {
+            lxb_dom_node_t *temp_child = body->first_child;
+            while (temp_child) {
+                lxb_dom_node_t *next = temp_child->next;
+                lxb_dom_node_remove(temp_child);
+                
+                /* Change owner document */
+                temp_child->owner_document = node->owner_document;
+                
+                /* Append to target */
+                lxb_dom_node_insert_child(node, temp_child);
+                temp_child = next;
+            }
+        }
+        
+        lxb_html_document_destroy(temp_doc);
+    }
+    
+    /* Success */
+    unsigned char *buf = (unsigned char*)malloc(1);
+    if (!buf) return 0;
+    buf[0] = 0;
+    *out = buf;
+    *outlen = 1;
+    return 1;
+}
+
+/* SERIALIZE_DOC: Serialize entire document to HTML */
+static int op_serialize_doc(const unsigned char *payload, uint32_t plen,
+                            unsigned char **out, uint32_t *outlen) {
+    if (plen != 8) return 0;
+    
+    /* Payload: <<DocId:64>> */
+    uint64_t doc_id = read_uint64(payload);
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    /* Serialize document */
+    sbuf_t buf = {0};
+    if (!serialize_full_doc(d->doc, &buf)) {
+        return error_response("serialize_failed", out, outlen);
+    }
+    
+    /* Response: <<0:8, HtmlLen:32, Html/binary>> */
+    uint32_t resp_len = 1 + 4 + buf.len;
+    unsigned char *resp = (unsigned char*)malloc(resp_len);
+    if (!resp) {
+        free(buf.ptr);
+        return 0;
+    }
+    
+    resp[0] = 0;
+    write_uint32(resp + 1, buf.len);
+    memcpy(resp + 5, buf.ptr, buf.len);
+    free(buf.ptr);
+    
+    *out = resp;
+    *outlen = resp_len;
+    return 1;
+}
+
+/* CREATE_ELEMENT: Create a new element node */
+static int op_create_element(const unsigned char *payload, uint32_t plen,
+                             unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 4) return 0;
+    
+    /* Payload: <<DocId:64, TagNameLen:32, TagName/binary>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint32_t tag_len = read_uint32(payload + 8);
+    
+    if (12 + tag_len > plen) return 0;
+    const unsigned char *tag_name = payload + 12;
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    /* Create element */
+    lxb_dom_document_t *doc = lxb_dom_interface_document(d->doc);
+    lxb_dom_element_t *element = lxb_dom_document_create_element(
+        doc, tag_name, tag_len, NULL
+    );
+    
+    if (!element) {
+        return error_response("create_failed", out, outlen);
+    }
+    
+    /* Return node handle */
+    /* Response: <<0:8, NodeHandle:64>> */
+    unsigned char *buf = (unsigned char*)malloc(9);
+    if (!buf) return 0;
+    
+    buf[0] = 0;  /* Success */
+    uint64_t handle = (uint64_t)(uintptr_t)lxb_dom_interface_node(element);
+    write_uint64(buf + 1, handle);
+    
+    *out = buf;
+    *outlen = 9;
+    return 1;
+}
+
+/* APPEND_CHILD: Append a child node to a parent */
+static int op_append_child(const unsigned char *payload, uint32_t plen,
+                           unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8 + 8) return 0;
+    
+    /* Payload: <<DocId:64, ParentHandle:64, ChildHandle:64>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t parent_handle = read_uint64(payload + 8);
+    uint64_t child_handle = read_uint64(payload + 16);
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    lxb_dom_node_t *parent = (lxb_dom_node_t *)(uintptr_t)parent_handle;
+    lxb_dom_node_t *child = (lxb_dom_node_t *)(uintptr_t)child_handle;
+    
+    /* Verify both nodes belong to document */
+    if (parent->owner_document != lxb_dom_interface_document(d->doc) ||
+        child->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    /* Append child */
+    lxb_dom_node_insert_child(parent, child);
+    
+    /* Success */
+    unsigned char *buf = (unsigned char*)malloc(1);
+    if (!buf) return 0;
+    buf[0] = 0;
+    *out = buf;
+    *outlen = 1;
+    return 1;
+}
+
+/* INSERT_BEFORE: Insert a node before a reference node */
+static int op_insert_before(const unsigned char *payload, uint32_t plen,
+                            unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8 + 8 + 8) return 0;
+    
+    /* Payload: <<DocId:64, ParentHandle:64, NewNodeHandle:64, RefNodeHandle:64>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t parent_handle = read_uint64(payload + 8);
+    uint64_t new_node_handle = read_uint64(payload + 16);
+    uint64_t ref_node_handle = read_uint64(payload + 24);
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    lxb_dom_node_t *parent = (lxb_dom_node_t *)(uintptr_t)parent_handle;
+    lxb_dom_node_t *new_node = (lxb_dom_node_t *)(uintptr_t)new_node_handle;
+    lxb_dom_node_t *ref_node = (lxb_dom_node_t *)(uintptr_t)ref_node_handle;
+    
+    /* Verify all nodes belong to document */
+    if (parent->owner_document != lxb_dom_interface_document(d->doc) ||
+        new_node->owner_document != lxb_dom_interface_document(d->doc) ||
+        ref_node->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    /* Verify ref_node is actually a child of parent */
+    if (ref_node->parent != parent) {
+        return error_response("ref_not_child", out, outlen);
+    }
+    
+    /* Insert before */
+    lxb_dom_node_insert_before(ref_node, new_node);
+    
+    /* Success */
+    unsigned char *buf = (unsigned char*)malloc(1);
+    if (!buf) return 0;
+    buf[0] = 0;
+    *out = buf;
+    *outlen = 1;
+    return 1;
+}
+
+/* REMOVE_NODE: Remove a node from its parent */
+static int op_remove_node(const unsigned char *payload, uint32_t plen,
+                          unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 8) return 0;
+    
+    /* Payload: <<DocId:64, NodeHandle:64>> */
+    uint64_t doc_id = read_uint64(payload);
+    uint64_t node_handle = read_uint64(payload + 8);
+    
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    lxb_dom_node_t *node = (lxb_dom_node_t *)(uintptr_t)node_handle;
+    
+    /* Verify node belongs to document */
+    if (node->owner_document != lxb_dom_interface_document(d->doc)) {
+        return error_response("invalid_node", out, outlen);
+    }
+    
+    /* Remove from parent */
+    lxb_dom_node_remove(node);
+    
+    /* Note: We don't destroy the node here so it can potentially be reinserted */
+    
+    /* Success */
+    unsigned char *buf = (unsigned char*)malloc(1);
+    if (!buf) return 0;
+    buf[0] = 0;
+    *out = buf;
+    *outlen = 1;
+    return 1;
+}
+
 /* ---------- main loop ---------- */
 int main(void){
     for(;;){
@@ -521,6 +1165,66 @@ int main(void){
         }
         else if(tag_eq(tag,"OUTER_HTML")){
             if(!op_outer_html(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"GET_ATTRIBUTE")){
+            if(!op_get_attribute(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"SET_ATTRIBUTE")){
+            if(!op_set_attribute(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"REMOVE_ATTRIBUTE")){
+            if(!op_remove_attribute(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"GET_TEXT")){
+            if(!op_get_text(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"SET_TEXT")){
+            if(!op_set_text(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"INNER_HTML")){
+            if(!op_inner_html(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"SET_INNER_HTML")){
+            if(!op_set_inner_html(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"SERIALIZE_DOC")){
+            if(!op_serialize_doc(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"CREATE_ELEMENT")){
+            if(!op_create_element(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"APPEND_CHILD")){
+            if(!op_append_child(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"INSERT_BEFORE")){
+            if(!op_insert_before(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"REMOVE_NODE")){
+            if(!op_remove_node(payload, plen, &resp, &rplen)){ 
                 free(req); break; 
             }
         }

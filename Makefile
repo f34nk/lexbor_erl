@@ -1,6 +1,6 @@
 .PHONY: all compile test test-c doc clean examples
 
-all: compile test-c test examples clean
+all: clean compile test-c test examples
 
 compile:
 	#
@@ -18,7 +18,7 @@ test-c:
 	#
 	# Run C unit tests
 	#
-	cd c_src/build && ctest --output-on-failure
+	cd c_src/build && ctest --verbose --output-on-failure
 
 doc:
 	#
@@ -30,9 +30,14 @@ clean:
 	#
 	# Clean
 	#
-	rm -rf c_src/build _build priv doc erl_crash.dump && rebar3 clean
+	rm -rf c_src/build _build priv doc erl_crash.dump examples/*.beam examples/*.dump && \
+	rebar3 clean
 
-examples: select_example.erl unicode_example.erl
+examples: select_example.erl \
+		  unicode_example.erl \
+		  attribute_example.erl \
+		  text_example.erl \
+		  node_example.erl
 
 %.erl:
 	#
@@ -41,4 +46,5 @@ examples: select_example.erl unicode_example.erl
 	cd examples && \
 	erlc -o . $@ && \
 	erl -pa . -pa ../_build/default/lib/lexbor_erl/ebin -noshell -eval '$(basename $@):run(), halt().' && \
-	rm -f $(basename $@).beam
+	rm -f $(basename $@).beam && \
+	echo "OK" || echo "FAILED"
