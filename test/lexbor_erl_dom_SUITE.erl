@@ -207,10 +207,6 @@ test_set_inner_html(_Config) ->
     ok = lexbor_erl:set_inner_html(Doc, Div, <<"<p>New</p><span>Content</span>">>),
     
     {ok, NewInner} = lexbor_erl:inner_html(Doc, Div),
-    %% Debug: Print what we actually got
-    ct:pal("DEBUG NewInner: ~p~n", [NewInner]),
-    ct:pal("DEBUG Length: ~p~n", [byte_size(NewInner)]),
-    ct:pal("DEBUG String: ~ts~n", [NewInner]),
     %% Check for element tags (serialization may vary across platforms)
     ?assert(binary:match(NewInner, <<"<p>">>) =/= nomatch),
     ?assert(binary:match(NewInner, <<"</p>">>) =/= nomatch),
