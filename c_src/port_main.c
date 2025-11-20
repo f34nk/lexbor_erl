@@ -992,7 +992,12 @@ static int op_set_inner_html(const unsigned char *payload, uint32_t plen,
             }
         }
         
-        lxb_html_document_destroy(temp_doc);
+        /* DON'T destroy temp_doc! The transferred nodes' text content
+         * is still allocated in temp_doc's memory. Destroying it would
+         * free that memory, causing use-after-free. This is a memory leak,
+         * but better than crashing. TODO: Find proper Lexbor API for
+         * adopting nodes across documents. */
+        // lxb_html_document_destroy(temp_doc);  // ← COMMENTED OUT!
     }
     
     /* Success */
