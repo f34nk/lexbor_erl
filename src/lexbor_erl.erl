@@ -37,33 +37,32 @@
 -module(lexbor_erl).
 
 %% Types
--type doc_id()      :: integer().
--type session_id()  :: integer().
--type node_ref()    :: {node, integer()}.
--type selector()    :: binary().
--type html_bin()    :: binary() | iolist().
--type result(T)     :: {ok, T} | {error, term()}.
+-type doc_id() :: integer().
+-type session_id() :: integer().
+-type node_ref() :: {node, integer()}.
+-type selector() :: binary().
+-type html_bin() :: binary() | iolist().
+-type result(T) :: {ok, T} | {error, term()}.
 
 -export_type([doc_id/0, session_id/0, node_ref/0, selector/0, html_bin/0, result/1]).
 
--export([
-    start/0, stop/0, alive/0,
+-export([start/0, stop/0, alive/0, parse_serialize/1, select_html/2, parse/1, release/1,
+         select/2, outer_html/2, parse_stream_begin/0, parse_stream_chunk/2, parse_stream_end/1,
+         get_attribute/3, set_attribute/4, remove_attribute/3, get_text/2, set_text/3,
+         inner_html/2, set_inner_html/3, serialize/1, create_element/2, append_child/3,
+         insert_before/4, remove_node/2]).
+
     %% stateless
-    parse_serialize/1, select_html/2,
+
     %% stateful
-    parse/1, release/1,
-    select/2, outer_html/2,
+
     %% streaming parser
-    parse_stream_begin/0, parse_stream_chunk/2, parse_stream_end/1,
+
     %% DOM manipulation - attributes
-    get_attribute/3, set_attribute/4, remove_attribute/3,
+
     %% DOM manipulation - text and HTML
-    get_text/2, set_text/3,
-    inner_html/2, set_inner_html/3,
-    serialize/1,
+
     %% DOM manipulation - node creation and tree manipulation
-    create_element/2, append_child/3, insert_before/4, remove_node/2
-]).
 
 %% --- Lifecycle ---
 
@@ -76,7 +75,8 @@
 %% @returns `ok' on success, `{error, Reason}' on failure
 -spec start() -> ok | {error, term()}.
 start() ->
-    application:ensure_all_started(lexbor_erl), ok.
+    application:ensure_all_started(lexbor_erl),
+    ok.
 
 %% @doc Stop the lexbor_erl application.
 %%
@@ -117,7 +117,7 @@ alive() ->
 %% @param Html The HTML content as binary or iolist
 %% @returns `{ok, Binary}' with normalized HTML, or `{error, Reason}'
 -spec parse_serialize(html_bin()) -> result(binary()).
-parse_serialize(Html) when is_list(Html) ; is_binary(Html) ->
+parse_serialize(Html) when is_list(Html); is_binary(Html) ->
     lexbor_erl_pool:call(undefined, {<<"PARSE_SERIALIZE">>, iolist_to_binary(Html)}).
 
 %% @doc Parse HTML and select elements by CSS selector (stateless operation).
@@ -141,8 +141,10 @@ parse_serialize(Html) when is_list(Html) ; is_binary(Html) ->
 %% @returns `{ok, [Binary]}' with list of matched elements' HTML, or `{error, Reason}'
 -spec select_html(html_bin(), selector()) -> result([binary()]).
 select_html(Html, Css) ->
-    Payload = << (iolist_size(Css)):32/big, (iolist_to_binary(Css))/binary,
-                 (iolist_to_binary(Html))/binary >>,
+    Payload =
+        <<(iolist_size(Css)):32/big,
+          (iolist_to_binary(Css))/binary,
+          (iolist_to_binary(Html))/binary>>,
     case lexbor_erl_pool:call(undefined, {<<"SELECT_HTML">>, Payload}) of
         {ok, Bin} ->
             decode_bin_list(Bin);
@@ -179,13 +181,15 @@ parse(Html) ->
     %% Request: payload = Html
     %% Generate a worker ID for this new document (round-robin)
     PoolSize = lexbor_erl_pool:get_pool_size(),
-    WorkerId = (erlang:system_time(microsecond) rem PoolSize) + 1,
-    case lexbor_erl_pool:call({new_doc, WorkerId}, {<<"PARSE_DOC">>, iolist_to_binary(Html)}) of
+    WorkerId = erlang:system_time(microsecond) rem PoolSize + 1,
+    case lexbor_erl_pool:call({new_doc, WorkerId}, {<<"PARSE_DOC">>, iolist_to_binary(Html)})
+    of
         {ok, <<0, DocId:64/big-unsigned-integer>>} ->
             {ok, DocId};
         {ok, <<1, Err/binary>>} ->
             {error, binary_to_list(Err)};
-        Other -> Other
+        Other ->
+            Other
     end.
 
 %% @doc Release a document and free its resources.
@@ -211,9 +215,12 @@ release(DocId) ->
     Req = <<DocId:64/big-unsigned-integer>>,
     %% Route by DocId to the worker that has this document
     case lexbor_erl_pool:call(DocId, {<<"RELEASE_DOC">>, Req}) of
-        {ok, <<0>>} -> ok;
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        Other -> Other
+        {ok, <<0>>} ->
+            ok;
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
     end.
 
 %% --- Streaming Parser API ---
@@ -246,7 +253,7 @@ release(DocId) ->
 parse_stream_begin() ->
     %% Assign to a worker using time-based hash distribution
     PoolSize = lexbor_erl_pool:get_pool_size(),
-    WorkerId = (erlang:system_time(microsecond) rem PoolSize) + 1,
+    WorkerId = erlang:system_time(microsecond) rem PoolSize + 1,
     case lexbor_erl_pool:call({new_doc, WorkerId}, {<<"PARSE_STREAM_BEGIN">>, <<>>}) of
         {ok, <<0, SessionId:64/big-unsigned-integer>>} ->
             {ok, SessionId};
@@ -254,7 +261,8 @@ parse_stream_begin() ->
             {error, binary_to_list(Err)};
         {ok, <<1>>} ->
             {error, "Failed to create parse session"};
-        Other -> Other
+        Other ->
+            Other
     end.
 
 %% @doc Feed a chunk of HTML to a streaming parse session.
@@ -283,10 +291,14 @@ parse_stream_chunk(SessionId, Chunk) ->
     Req = <<SessionId:64/big-unsigned-integer, ChunkBin/binary>>,
     %% Route by SessionId to the worker handling this session
     case lexbor_erl_pool:call(SessionId, {<<"PARSE_STREAM_CHUNK">>, Req}) of
-        {ok, <<0>>} -> ok;
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        {ok, <<1>>} -> {error, "Invalid session or parse error"};
-        Other -> Other
+        {ok, <<0>>} ->
+            ok;
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        {ok, <<1>>} ->
+            {error, "Invalid session or parse error"};
+        Other ->
+            Other
     end.
 
 %% @doc Finalize a streaming parse session and get the document.
@@ -323,7 +335,8 @@ parse_stream_end(SessionId) ->
             {error, binary_to_list(Err)};
         {ok, <<1>>} ->
             {error, "Invalid session or finalization error"};
-        Other -> Other
+        Other ->
+            Other
     end.
 
 %% @doc Select nodes from a document using a CSS selector.
@@ -363,7 +376,8 @@ select(DocId, Css) ->
             {ok, read_handles(Cnt, Rest, [])};
         {ok, <<1, Err/binary>>} ->
             {error, binary_to_list(Err)};
-        Other -> Other
+        Other ->
+            Other
     end.
 
 %% @doc Get the outer HTML of a node.
@@ -389,9 +403,12 @@ outer_html(DocId, {node, Handle}) ->
     Req = <<DocId:64/big-unsigned-integer, Handle:64/big-unsigned-integer>>,
     %% Route by DocId to the worker that has this document
     case lexbor_erl_pool:call(DocId, {<<"OUTER_HTML">>, Req}) of
-        {ok, <<0, Len:32/big, Bin:Len/binary>>} -> {ok, Bin};
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        Other -> Other
+        {ok, <<0, Len:32/big, Bin:Len/binary>>} ->
+            {ok, Bin};
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
     end.
 
 %% --- DOM Manipulation API ---
@@ -417,14 +434,15 @@ outer_html(DocId, {node, Handle}) ->
 %% @param NodeRef Node handle from {@link select/2}
 %% @param AttrName Attribute name as binary
 %% @returns `{ok, Binary}' with attribute value, `{ok, undefined}' if not found, or `{error, Reason}'
--spec get_attribute(doc_id(), node_ref(), binary()) -> 
-    {ok, binary() | undefined} | {error, term()}.
+-spec get_attribute(doc_id(), node_ref(), binary()) ->
+                       {ok, binary() | undefined} | {error, term()}.
 get_attribute(DocId, {node, Handle}, AttrName) when is_binary(AttrName) ->
     AttrLen = byte_size(AttrName),
-    Payload = <<DocId:64/big-unsigned-integer,
-                Handle:64/big-unsigned-integer,
-                AttrLen:32/big,
-                AttrName/binary>>,
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          Handle:64/big-unsigned-integer,
+          AttrLen:32/big,
+          AttrName/binary>>,
     case lexbor_erl_pool:call(DocId, {<<"GET_ATTRIBUTE">>, Payload}) of
         {ok, <<0, ValLen:32/big, Value:ValLen/binary>>} ->
             {ok, Value};
@@ -458,22 +476,25 @@ get_attribute(DocId, {node, Handle}, AttrName) when is_binary(AttrName) ->
 %% @param AttrName Attribute name as binary
 %% @param Value Attribute value as binary
 %% @returns `ok' on success, `{error, Reason}' on failure
--spec set_attribute(doc_id(), node_ref(), binary(), binary()) -> 
-    ok | {error, term()}.
-set_attribute(DocId, {node, Handle}, AttrName, Value) 
-        when is_binary(AttrName), is_binary(Value) ->
+-spec set_attribute(doc_id(), node_ref(), binary(), binary()) -> ok | {error, term()}.
+set_attribute(DocId, {node, Handle}, AttrName, Value)
+    when is_binary(AttrName), is_binary(Value) ->
     AttrLen = byte_size(AttrName),
     ValLen = byte_size(Value),
-    Payload = <<DocId:64/big-unsigned-integer,
-                Handle:64/big-unsigned-integer,
-                AttrLen:32/big,
-                AttrName/binary,
-                ValLen:32/big,
-                Value/binary>>,
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          Handle:64/big-unsigned-integer,
+          AttrLen:32/big,
+          AttrName/binary,
+          ValLen:32/big,
+          Value/binary>>,
     case lexbor_erl_pool:call(DocId, {<<"SET_ATTRIBUTE">>, Payload}) of
-        {ok, <<0>>} -> ok;
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        Other -> Other
+        {ok, <<0>>} ->
+            ok;
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
     end.
 
 %% @doc Remove an attribute from an element node.
@@ -496,18 +517,21 @@ set_attribute(DocId, {node, Handle}, AttrName, Value)
 %% @param NodeRef Node handle from {@link select/2}
 %% @param AttrName Attribute name as binary
 %% @returns `ok' on success, `{error, Reason}' on failure
--spec remove_attribute(doc_id(), node_ref(), binary()) -> 
-    ok | {error, term()}.
+-spec remove_attribute(doc_id(), node_ref(), binary()) -> ok | {error, term()}.
 remove_attribute(DocId, {node, Handle}, AttrName) when is_binary(AttrName) ->
     AttrLen = byte_size(AttrName),
-    Payload = <<DocId:64/big-unsigned-integer,
-                Handle:64/big-unsigned-integer,
-                AttrLen:32/big,
-                AttrName/binary>>,
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          Handle:64/big-unsigned-integer,
+          AttrLen:32/big,
+          AttrName/binary>>,
     case lexbor_erl_pool:call(DocId, {<<"REMOVE_ATTRIBUTE">>, Payload}) of
-        {ok, <<0>>} -> ok;
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        Other -> Other
+        {ok, <<0>>} ->
+            ok;
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
     end.
 
 %% @doc Get the text content of a node.
@@ -528,8 +552,7 @@ remove_attribute(DocId, {node, Handle}, AttrName) when is_binary(AttrName) ->
 %% @returns `{ok, Binary}' with text content, or `{error, Reason}'
 -spec get_text(doc_id(), node_ref()) -> {ok, binary()} | {error, term()}.
 get_text(DocId, {node, Handle}) ->
-    Payload = <<DocId:64/big-unsigned-integer,
-                Handle:64/big-unsigned-integer>>,
+    Payload = <<DocId:64/big-unsigned-integer, Handle:64/big-unsigned-integer>>,
     case lexbor_erl_pool:call(DocId, {<<"GET_TEXT">>, Payload}) of
         {ok, <<0, TextLen:32/big, Text:TextLen/binary>>} ->
             {ok, Text};
@@ -560,14 +583,18 @@ get_text(DocId, {node, Handle}) ->
 -spec set_text(doc_id(), node_ref(), binary()) -> ok | {error, term()}.
 set_text(DocId, {node, Handle}, Text) when is_binary(Text) ->
     TextLen = byte_size(Text),
-    Payload = <<DocId:64/big-unsigned-integer,
-                Handle:64/big-unsigned-integer,
-                TextLen:32/big,
-                Text/binary>>,
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          Handle:64/big-unsigned-integer,
+          TextLen:32/big,
+          Text/binary>>,
     case lexbor_erl_pool:call(DocId, {<<"SET_TEXT">>, Payload}) of
-        {ok, <<0>>} -> ok;
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        Other -> Other
+        {ok, <<0>>} ->
+            ok;
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
     end.
 
 %% @doc Get the inner HTML of a node.
@@ -588,8 +615,7 @@ set_text(DocId, {node, Handle}, Text) when is_binary(Text) ->
 %% @returns `{ok, Binary}' with inner HTML, or `{error, Reason}'
 -spec inner_html(doc_id(), node_ref()) -> {ok, binary()} | {error, term()}.
 inner_html(DocId, {node, Handle}) ->
-    Payload = <<DocId:64/big-unsigned-integer,
-                Handle:64/big-unsigned-integer>>,
+    Payload = <<DocId:64/big-unsigned-integer, Handle:64/big-unsigned-integer>>,
     case lexbor_erl_pool:call(DocId, {<<"INNER_HTML">>, Payload}) of
         {ok, <<0, HtmlLen:32/big, Html:HtmlLen/binary>>} ->
             {ok, Html};
@@ -623,14 +649,18 @@ inner_html(DocId, {node, Handle}) ->
 -spec set_inner_html(doc_id(), node_ref(), binary()) -> ok | {error, term()}.
 set_inner_html(DocId, {node, Handle}, Html) when is_binary(Html) ->
     HtmlLen = byte_size(Html),
-    Payload = <<DocId:64/big-unsigned-integer,
-                Handle:64/big-unsigned-integer,
-                HtmlLen:32/big,
-                Html/binary>>,
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          Handle:64/big-unsigned-integer,
+          HtmlLen:32/big,
+          Html/binary>>,
     case lexbor_erl_pool:call(DocId, {<<"SET_INNER_HTML">>, Payload}) of
-        {ok, <<0>>} -> ok;
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        Other -> Other
+        {ok, <<0>>} ->
+            ok;
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
     end.
 
 %% @doc Serialize the entire document to HTML.
@@ -684,9 +714,7 @@ serialize(DocId) ->
 -spec create_element(doc_id(), binary()) -> {ok, node_ref()} | {error, term()}.
 create_element(DocId, TagName) when is_binary(TagName) ->
     TagLen = byte_size(TagName),
-    Payload = <<DocId:64/big-unsigned-integer,
-                TagLen:32/big,
-                TagName/binary>>,
+    Payload = <<DocId:64/big-unsigned-integer, TagLen:32/big, TagName/binary>>,
     case lexbor_erl_pool:call(DocId, {<<"CREATE_ELEMENT">>, Payload}) of
         {ok, <<0, Handle:64/big-unsigned-integer>>} ->
             {ok, {node, Handle}};
@@ -716,13 +744,17 @@ create_element(DocId, TagName) when is_binary(TagName) ->
 %% @returns `ok' on success, `{error, Reason}' on failure
 -spec append_child(doc_id(), node_ref(), node_ref()) -> ok | {error, term()}.
 append_child(DocId, {node, ParentHandle}, {node, ChildHandle}) ->
-    Payload = <<DocId:64/big-unsigned-integer,
-                ParentHandle:64/big-unsigned-integer,
-                ChildHandle:64/big-unsigned-integer>>,
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          ParentHandle:64/big-unsigned-integer,
+          ChildHandle:64/big-unsigned-integer>>,
     case lexbor_erl_pool:call(DocId, {<<"APPEND_CHILD">>, Payload}) of
-        {ok, <<0>>} -> ok;
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        Other -> Other
+        {ok, <<0>>} ->
+            ok;
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
     end.
 
 %% @doc Insert a node before a reference node.
@@ -746,17 +778,23 @@ append_child(DocId, {node, ParentHandle}, {node, ChildHandle}) ->
 %% @param NewNode Node to insert
 %% @param RefNode Reference node to insert before
 %% @returns `ok' on success, `{error, Reason}' on failure
--spec insert_before(doc_id(), node_ref(), node_ref(), node_ref()) -> 
-    ok | {error, term()}.
-insert_before(DocId, {node, ParentHandle}, {node, NewNodeHandle}, {node, RefNodeHandle}) ->
-    Payload = <<DocId:64/big-unsigned-integer,
-                ParentHandle:64/big-unsigned-integer,
-                NewNodeHandle:64/big-unsigned-integer,
-                RefNodeHandle:64/big-unsigned-integer>>,
+-spec insert_before(doc_id(), node_ref(), node_ref(), node_ref()) -> ok | {error, term()}.
+insert_before(DocId,
+              {node, ParentHandle},
+              {node, NewNodeHandle},
+              {node, RefNodeHandle}) ->
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          ParentHandle:64/big-unsigned-integer,
+          NewNodeHandle:64/big-unsigned-integer,
+          RefNodeHandle:64/big-unsigned-integer>>,
     case lexbor_erl_pool:call(DocId, {<<"INSERT_BEFORE">>, Payload}) of
-        {ok, <<0>>} -> ok;
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        Other -> Other
+        {ok, <<0>>} ->
+            ok;
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
     end.
 
 %% @doc Remove a node from its parent.
@@ -778,12 +816,14 @@ insert_before(DocId, {node, ParentHandle}, {node, NewNodeHandle}, {node, RefNode
 %% @returns `ok' on success, `{error, Reason}' on failure
 -spec remove_node(doc_id(), node_ref()) -> ok | {error, term()}.
 remove_node(DocId, {node, Handle}) ->
-    Payload = <<DocId:64/big-unsigned-integer,
-                Handle:64/big-unsigned-integer>>,
+    Payload = <<DocId:64/big-unsigned-integer, Handle:64/big-unsigned-integer>>,
     case lexbor_erl_pool:call(DocId, {<<"REMOVE_NODE">>, Payload}) of
-        {ok, <<0>>} -> ok;
-        {ok, <<1, Err/binary>>} -> {error, binary_to_list(Err)};
-        Other -> Other
+        {ok, <<0>>} ->
+            ok;
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
     end.
 
 %% --- Internal helpers ---
@@ -791,9 +831,11 @@ remove_node(DocId, {node, Handle}) ->
 %% Binary list decoder: <<N:32, [L:32, B:L]*>>
 decode_bin_list(Bin) when is_binary(Bin) ->
     try decode_bin_list_(Bin, []) of
-        {ok, Rev} -> {ok, lists:reverse(Rev)}
+        {ok, Rev} ->
+            {ok, lists:reverse(Rev)}
     catch
-        _:Reason -> {error, {bad_reply, Reason}}
+        _:Reason ->
+            {error, {bad_reply, Reason}}
     end.
 
 decode_bin_list_(<<Count:32/big, Rest/binary>>, Acc) ->
@@ -802,11 +844,12 @@ decode_bin_list_(<<Count:32/big, Rest/binary>>, Acc) ->
 decode_items_(0, Rest, Acc) when Rest =:= <<>> ->
     {ok, Acc};
 decode_items_(N, <<Len:32/big, Item:Len/binary, Tail/binary>>, Acc) when N > 0 ->
-    decode_items_(N-1, Tail, [Item|Acc]);
+    decode_items_(N - 1, Tail, [Item | Acc]);
 decode_items_(_N, _Rest, _Acc) ->
     erlang:error(invalid_payload).
 
 %% Read node handles from binary
-read_handles(0, <<>>, Acc) -> lists:reverse(Acc);
+read_handles(0, <<>>, Acc) ->
+    lists:reverse(Acc);
 read_handles(N, <<Handle:64/big-unsigned-integer, Rest/binary>>, Acc) when N > 0 ->
-    read_handles(N-1, Rest, [{node, Handle} | Acc]).
+    read_handles(N - 1, Rest, [{node, Handle} | Acc]).

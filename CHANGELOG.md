@@ -2,10 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - Memory leak in DOM maniplation
+## [Unreleased] - Bug in DOM maniplation
 
 ### Fixed
-- Critical memory leak in `set_inner_html/3` - refactored to use `lxb_dom_document_import_node` API to properly copy node data to target document's memory pool, preventing use-after-free when temporary document is destroyed 
+- Refactored `set_inner_html/3` to use `lxb_dom_document_import_node` API to properly copy node data to target document's memory pool, preventing use-after-free memory leak when temporary document is destroyed 
 
 ## [Unreleased] - Chunk Based Streaming Parser
 

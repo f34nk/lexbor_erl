@@ -122,7 +122,7 @@ ok
 ok
 ```
 
-See the `examples/` directory for complete working examples:
+See the [examples/](https://github.com/f34nk/lexbor_erl/tree/main/examples) directory for complete working examples:
 
 ## Configuration
 

@@ -17,16 +17,16 @@
 %%
 %% @end
 -module(lexbor_erl_pool).
+
 -behaviour(gen_server).
 
 -export([start_link/1, call/2, alive/0, get_pool_size/0]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -define(SERVER, ?MODULE).
 
--record(state, {
-    size :: pos_integer()
-}).
+-record(state, {size :: pos_integer()}).
 
 %% ===================================================================
 %% Public API
@@ -45,11 +45,13 @@ start_link(PoolSize) ->
 %% @returns `true' if at least one worker is available, `false' otherwise
 -spec alive() -> boolean().
 alive() ->
-    whereis(?SERVER) =/= undefined andalso
-    case catch gen_server:call(?SERVER, alive, 1000) of
-        true -> true;
-        _ -> false
-    end.
+    whereis(?SERVER) =/= undefined
+    andalso case catch gen_server:call(?SERVER, alive, 1000) of
+                true ->
+                    true;
+                _ ->
+                    false
+            end.
 
 %% @doc Get the configured pool size.
 %%
@@ -63,15 +65,19 @@ get_pool_size() ->
 %%   - undefined (stateless ops) -> round-robin
 %%   - {new_doc, WorkerId} -> specific worker for new document
 %%   - DocId (integer) -> extract worker from DocId and decode for payload
--spec call(undefined | {new_doc, pos_integer()} | non_neg_integer(), {binary(), binary()}) -> 
-    {ok, binary()} | {error, term()}.
+-spec call(undefined | {new_doc, pos_integer()} | non_neg_integer(),
+           {binary(), binary()}) ->
+              {ok, binary()} | {error, term()}.
 call(Key, {CmdTag, Payload}) ->
     {Worker, MaybeWorkerId, MaybeDecodedPayload} = get_worker_and_payload(Key, Payload),
     % Call the worker with potentially decoded payload
-    ActualPayload = case MaybeDecodedPayload of
-        undefined -> Payload;
-        Decoded -> Decoded
-    end,
+    ActualPayload =
+        case MaybeDecodedPayload of
+            undefined ->
+                Payload;
+            Decoded ->
+                Decoded
+        end,
     % Call the worker and potentially rewrite the DocId in the response
     case lexbor_erl_worker:call(Worker, CmdTag, ActualPayload) of
         {ok, <<0, DocId:64/big-unsigned-integer>>} when MaybeWorkerId =/= undefined ->
@@ -94,31 +100,36 @@ call(Key, {CmdTag, Payload}) ->
 
 init([PoolSize]) when PoolSize > 0 ->
     % Workers are started by supervisor, we just track the pool size
-    {ok, #state{size=PoolSize}}.
+    {ok, #state{size = PoolSize}}.
 
-handle_call(get_workers, _From, #state{size=Size}=State) ->
+handle_call(get_workers, _From, #state{size = Size} = State) ->
     % Look up workers by registered name
-    Workers = lists:filtermap(fun(I) ->
-        case whereis(lexbor_erl_worker:worker_name(I)) of
-            undefined -> false;
-            Pid -> {true, Pid}
-        end
-    end, lists:seq(1, Size)),
+    Workers =
+        lists:filtermap(fun(I) ->
+                           case whereis(lexbor_erl_worker:worker_name(I)) of
+                               undefined ->
+                                   false;
+                               Pid ->
+                                   {true, Pid}
+                           end
+                        end,
+                        lists:seq(1, Size)),
     {reply, Workers, State};
-
-handle_call(get_pool_size, _From, #state{size=Size}=State) ->
+handle_call(get_pool_size, _From, #state{size = Size} = State) ->
     {reply, Size, State};
-
-handle_call(alive, _From, #state{size=Size}=State) ->
+handle_call(alive, _From, #state{size = Size} = State) ->
     % Check if at least one worker is alive
-    Alive = lists:any(fun(I) ->
-        case whereis(lexbor_erl_worker:worker_name(I)) of
-            undefined -> false;
-            Pid -> is_process_alive(Pid)
-        end
-    end, lists:seq(1, Size)),
+    Alive =
+        lists:any(fun(I) ->
+                     case whereis(lexbor_erl_worker:worker_name(I)) of
+                         undefined ->
+                             false;
+                         Pid ->
+                             is_process_alive(Pid)
+                     end
+                  end,
+                  lists:seq(1, Size)),
     {reply, Alive, State};
-
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -141,33 +152,38 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Get worker for a given key and potentially decode payload
 %% Returns {Worker, MaybeWorkerId, MaybeDecodedPayload}
--spec get_worker_and_payload(undefined | {new_doc, pos_integer()} | non_neg_integer(), binary()) -> 
-    {pid(), pos_integer() | undefined, binary() | undefined}.
+-spec get_worker_and_payload(undefined | {new_doc, pos_integer()} | non_neg_integer(),
+                             binary()) ->
+                                {pid(), pos_integer() | undefined, binary() | undefined}.
 get_worker_and_payload(Key, Payload) ->
     Workers = gen_server:call(?SERVER, get_workers),
     PoolSize = length(Workers),
-    {Index, ReturnWorkerId, DecodedPayload} = case Key of
-        undefined ->
-            % Stateless operation - time-based hash distribution
-            {erlang:phash2(erlang:monotonic_time(), PoolSize), undefined, undefined};
-        {new_doc, WorkerId} ->
-            % New document on specific worker
-            {WorkerId - 1, WorkerId, undefined};
-        DocId when is_integer(DocId) ->
-            % Stateful operation - extract worker ID from DocId
-            % and decode the DocId in the payload
-            {WorkerId, RealDocId} = decode_doc_id(DocId, PoolSize),
-            % Validate WorkerId is in valid range
-            ValidWorkerId = if
-                WorkerId < 1 orelse WorkerId > PoolSize ->
-                    % Invalid worker ID - fall back to hash-based routing
-                    erlang:phash2(DocId, PoolSize) + 1;
-                true ->
-                    WorkerId
-            end,
-            NewPayload = decode_payload_docid(Payload, RealDocId),
-            {ValidWorkerId - 1, undefined, NewPayload}
-    end,
+    {Index, ReturnWorkerId, DecodedPayload} =
+        case Key of
+            undefined ->
+                % Stateless operation - time-based hash distribution
+                {erlang:phash2(
+                     erlang:monotonic_time(), PoolSize),
+                 undefined,
+                 undefined};
+            {new_doc, WorkerId} ->
+                % New document on specific worker
+                {WorkerId - 1, WorkerId, undefined};
+            DocId when is_integer(DocId) ->
+                % Stateful operation - extract worker ID from DocId
+                % and decode the DocId in the payload
+                {WorkerId, RealDocId} = decode_doc_id(DocId, PoolSize),
+                % Validate WorkerId is in valid range
+                ValidWorkerId =
+                    if WorkerId < 1 orelse WorkerId > PoolSize ->
+                           % Invalid worker ID - fall back to hash-based routing
+                           erlang:phash2(DocId, PoolSize) + 1;
+                       true ->
+                           WorkerId
+                    end,
+                NewPayload = decode_payload_docid(Payload, RealDocId),
+                {ValidWorkerId - 1, undefined, NewPayload}
+        end,
     {lists:nth(Index + 1, Workers), ReturnWorkerId, DecodedPayload}.
 
 %% Decode DocId in payload (replace encoded DocId with real DocId)
@@ -180,7 +196,7 @@ decode_payload_docid(Payload, _RealDocId) ->
 
 %% Encode worker ID into the high 8 bits of DocId
 encode_doc_id(WorkerId, DocId) ->
-    (WorkerId bsl 56) bor (DocId band 16#00FFFFFFFFFFFFFF).
+    WorkerId bsl 56 bor DocId band 16#00FFFFFFFFFFFFFF.
 
 %% Decode worker ID from DocId
 %% Returns {WorkerId, RealDocId}

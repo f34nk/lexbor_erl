@@ -1,4 +1,6 @@
 _build/
+build/
+.cache/
 _checkouts/
 .rebar3
 rebar3.crashdump

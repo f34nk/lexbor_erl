@@ -13,6 +13,7 @@
 %%
 %% @end
 -module(lexbor_erl_app).
+
 -behaviour(application).
 
 -export([start/2, stop/1]).
@@ -27,8 +28,8 @@
 %% @returns `{ok, Pid}' with supervisor PID
 start(_Type, _Args) ->
     % Get pool size from configuration, default to number of schedulers
-    PoolSize = application:get_env(lexbor_erl, pool_size, 
-                                   erlang:system_info(schedulers_online)),
+    PoolSize =
+        application:get_env(lexbor_erl, pool_size, erlang:system_info(schedulers_online)),
     lexbor_erl_sup:start_link(PoolSize).
 
 %% @doc Stop the application.

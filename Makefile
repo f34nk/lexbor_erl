@@ -37,7 +37,7 @@ clean:
 	#
 	# Clean
 	#
-	rm -rf c_src/build _build priv doc erl_crash.dump examples/*.beam examples/*.dump && \
+	rm -rf c_src/build _build build .cache priv doc erl_crash.dump examples/*.beam examples/*.dump && \
 	rebar3 clean
 
 .PHONY: examples
