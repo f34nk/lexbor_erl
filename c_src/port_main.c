@@ -956,23 +956,33 @@ static int op_set_inner_html(const unsigned char *payload, uint32_t plen,
             return error_response("parse_html_failed", out, outlen);
         }
         
-        /* Move parsed nodes from temp document body to target element */
+        /* Import nodes from temp document to target document */
         lxb_dom_node_t *body = lxb_dom_interface_node(temp_doc->body);
-        if (body) {
+        if (body && body->first_child) {
             lxb_dom_node_t *temp_child = body->first_child;
+            
             while (temp_child) {
                 lxb_dom_node_t *next = temp_child->next;
-                lxb_dom_node_remove(temp_child);
                 
-                /* Change owner document */
-                temp_child->owner_document = node->owner_document;
+                /* Import node from temp document to target document.
+                 * This copies ALL data (including text strings) to target
+                 * document's memory pool using the W3C DOM importNode() API. */
+                lxb_dom_node_t *imported = lxb_dom_document_import_node(
+                    lxb_dom_interface_document(d->doc),  // Target document
+                    temp_child,                           // Source node
+                    true                                  // Deep clone (include children)
+                );
                 
-                /* Append to target */
-                lxb_dom_node_insert_child(node, temp_child);
+                if (imported) {
+                    /* Insert imported node into target */
+                    lxb_dom_node_insert_child(node, imported);
+                }
+                
                 temp_child = next;
             }
         }
         
+        /* Safe to destroy temp_doc: all data has been copied to target document */
         lxb_html_document_destroy(temp_doc);
     }
     

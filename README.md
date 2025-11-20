@@ -4,14 +4,17 @@ An Erlang wrapper for the [Lexbor](https://github.com/lexbor/lexbor) HTML parser
 
 ## Overview
 
-`lexbor_erl` provides safe, fast HTML parsing, CSS selector querying, and DOM manipulation for Erlang applications. It wraps the high-performance Lexbor C library using a port (separate OS process) for isolation and safety.
+`lexbor_erl` provides safe, fast HTML parsing, CSS selector querying, DOM manipulation, and streaming parser capabilities for Erlang applications. It wraps the high-performance Lexbor C library using a port-based worker pool architecture for isolation, safety, and parallel processing.
 
 ## Features
 
 - **HTML5-tolerant parsing** with automatic error recovery
 - **CSS selector queries** (class, ID, tag, attributes, combinators, pseudo-classes)
+- **DOM manipulation** - modify attributes, text content, and tree structure
+- **Streaming parser** - parse large HTML documents incrementally
 - **Stateless operations** for quick one-off tasks
 - **Stateful document management** for complex workflows
+- **Parallel processing** - worker pool architecture for concurrent operations
 - **Safe for the BEAM** - crashes in native code don't bring down the VM
 - **No atom leaks** - all user input stays as binaries
 
@@ -78,57 +81,48 @@ ok
 6> [lexbor_erl:outer_html(Doc, N) || N <- Nodes].
 [{ok,<<"<li class=\"a\">A</li>">>},{ok,<<"<li class=\"b\">B</li>">>}]
 
-%% Release document
-7> ok = lexbor_erl:release(Doc).
+%% DOM manipulation: modify attributes
+7> {ok, [Li]} = lexbor_erl:select(Doc, <<"li.a">>).
+{ok,[{node,140735108544752}]}
+
+8> lexbor_erl:set_attribute(Doc, Li, <<"class">>, <<"modified">>).
 ok
 
-8> lexbor_erl:stop().
+9> lexbor_erl:get_attribute(Doc, Li, <<"class">>).
+{ok,<<"modified">>}
+
+%% DOM manipulation: modify text content
+10> lexbor_erl:set_text(Doc, Li, <<"New Text">>).
+ok
+
+11> lexbor_erl:get_text(Doc, Li).
+{ok,<<"New Text">>}
+
+%% Streaming parser: parse incrementally
+12> {ok, Session} = lexbor_erl:parse_stream_begin().
+{ok,72057594037927937}
+
+13> ok = lexbor_erl:parse_stream_chunk(Session, <<"<div><p>He">>).
+ok
+
+14> ok = lexbor_erl:parse_stream_chunk(Session, <<"llo</p></div>">>).
+ok
+
+15> {ok, StreamDoc} = lexbor_erl:parse_stream_end(Session).
+{ok,72057594037927938}
+
+%% Release documents
+16> ok = lexbor_erl:release(Doc).
+ok
+
+17> ok = lexbor_erl:release(StreamDoc).
+ok
+
+18> lexbor_erl:stop().
 ok
 ```
 
-## API
-
-### Lifecycle
-
-```erlang
--spec start() -> ok | {error, term()}.
--spec stop() -> ok.
--spec alive() -> boolean().
-```
-
-### Stateless Operations
-
-```erlang
-%% Parse HTML and serialize back (normalized)
--spec parse_serialize(binary() | iolist()) -> {ok, binary()} | {error, term()}.
-
-%% Parse, select with CSS, return outerHTML of matches
--spec select_html(binary() | iolist(), binary()) -> {ok, [binary()]} | {error, term()}.
-```
-
-### Stateful Operations
-
-```erlang
-%% Parse HTML into a document handle
--spec parse(binary() | iolist()) -> {ok, doc_id()} | {error, term()}.
-
-%% Free document resources
--spec release(doc_id()) -> ok | {error, term()}.
-
-%% Select nodes using CSS selector
--spec select(doc_id(), binary()) -> {ok, [node_ref()]} | {error, term()}.
-
-%% Get outerHTML of a node
--spec outer_html(doc_id(), node_ref()) -> {ok, binary()} | {error, term()}.
-```
-
-## Architecture
-
-- **Erlang façade**: Public API in `lexbor_erl` module
-- **Port manager**: `lexbor_erl_port` gen_server manages the native process
-- **Native port**: C program using Lexbor, communicates via stdin/stdout
-- **Protocol**: Length-prefixed binary frames (`{packet, 4}`)
-- **Safety**: Port crashes don't affect the BEAM VM
+See the `examples/` directory for complete working examples:
 
 ## Configuration
 

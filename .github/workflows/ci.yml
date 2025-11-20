@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - '*'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        otp-version: [
+          #'26.0', 
+          '27.0'
+          ]
+      fail-fast: false
+    
+    name: Build (OTP ${{ matrix.otp-version }} on ${{ matrix.os }})
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Erlang/OTP ${{ matrix.otp-version }}
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ matrix.otp-version }}
+        rebar3-version: '3.22'
+    
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential git
+    
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install cmake
+    
+    - name: Install lexbor library (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        git clone --depth 1 --branch v2.6.0 https://github.com/lexbor/lexbor.git /tmp/lexbor
+        cd /tmp/lexbor
+        cmake -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build
+        sudo cmake --install build
+        sudo ldconfig
+    
+    - name: Install lexbor library (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        git clone --depth 1 --branch v2.3.0 https://github.com/lexbor/lexbor.git /tmp/lexbor
+        cd /tmp/lexbor
+        cmake -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build
+        sudo cmake --install build
+    
+    - name: Compile Erlang code and C port
+      run: make compile
+      env:
+        DYLD_LIBRARY_PATH: /usr/local/lib:$DYLD_LIBRARY_PATH
+    
+    - name: Run C unit tests
+      run: make test-c
+      env:
+        DYLD_LIBRARY_PATH: /usr/local/lib:$DYLD_LIBRARY_PATH
+    
+    - name: Run Erlang tests
+      run: make test
+      env:
+        DYLD_LIBRARY_PATH: /usr/local/lib:$DYLD_LIBRARY_PATH
+    
+    - name: Run examples
+      run: make examples
+      env:
+        DYLD_LIBRARY_PATH: /usr/local/lib:$DYLD_LIBRARY_PATH
+    
+    - name: Generate documentation
+      run: make doc
+    
+    - name: Upload test logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-logs-${{ matrix.os }}-otp-${{ matrix.otp-version }}
+        path: |
+          **/rebar3.crashdump
+          **/_build/test/logs/
+          **/erl_crash.dump
+          c_src/build/Testing/
+        retention-days: 7
