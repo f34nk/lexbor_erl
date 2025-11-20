@@ -1,3 +1,6 @@
+X:=$(shell find examples -type f -name "*.erl" -not -name examples -maxdepth 1 -exec basename {} \;)
+EXAMPLES:=$(foreach x,$(X),$(x))
+
 .PHONY: all compile test test-c doc clean examples
 
 all: clean compile test-c test examples
@@ -33,12 +36,7 @@ clean:
 	rm -rf c_src/build _build priv doc erl_crash.dump examples/*.beam examples/*.dump && \
 	rebar3 clean
 
-examples: select_example.erl \
-		  unicode_example.erl \
-		  attribute_example.erl \
-		  text_example.erl \
-		  node_example.erl \
-		  chunk_based_streaming_example.erl
+examples: $(EXAMPLES)
 
 %.erl:
 	#
