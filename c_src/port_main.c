@@ -114,6 +114,53 @@ static int remove_doc(uint64_t id){
     return 0;
 }
 
+/* ---------- parse session registry ---------- */
+typedef struct {
+    uint64_t session_id;
+    lxb_html_document_t *doc;
+    int begun;
+    int ended;
+    size_t chunks_processed;
+} ParseSession;
+
+static ParseSession *sessions = NULL;
+static size_t sessions_len = 0, sessions_cap = 0;
+static uint64_t next_session_id = 1;
+
+static ParseSession* add_session(lxb_html_document_t *d) {
+    if (sessions_len == sessions_cap) {
+        size_t nc = sessions_cap ? sessions_cap * 2 : 16;
+        ParseSession *ns = (ParseSession*)realloc(sessions, nc * sizeof(ParseSession));
+        if (!ns) return NULL;
+        sessions = ns;
+        sessions_cap = nc;
+    }
+    sessions[sessions_len].session_id = next_session_id++;
+    sessions[sessions_len].doc = d;
+    sessions[sessions_len].begun = 0;
+    sessions[sessions_len].ended = 0;
+    sessions[sessions_len].chunks_processed = 0;
+    return &sessions[sessions_len++];
+}
+
+static ParseSession* find_session(uint64_t id) {
+    for (size_t i = 0; i < sessions_len; i++)
+        if (sessions[i].session_id == id) return &sessions[i];
+    return NULL;
+}
+
+static int remove_session(uint64_t id) {
+    for (size_t i = 0; i < sessions_len; i++) {
+        if (sessions[i].session_id == id) {
+            // Note: Document is NOT destroyed here as it's moved to doc registry
+            sessions[i] = sessions[sessions_len - 1];
+            sessions_len--;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* ---------- selector matching callback context ---------- */
 typedef struct {
     uint64_t *arr;
@@ -1131,6 +1178,115 @@ static int op_remove_node(const unsigned char *payload, uint32_t plen,
     return 1;
 }
 
+/* ---------- streaming parser operations ---------- */
+
+// Operation: PARSE_STREAM_BEGIN
+static int op_parse_stream_begin(unsigned char **out, uint32_t *outlen) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    if (!doc) return 0;
+    
+    // Initialize for chunked parsing
+    lxb_status_t st = lxb_html_document_parse_chunk_begin(doc);
+    if (st != LXB_STATUS_OK) {
+        lxb_html_document_destroy(doc);
+        return error_response("Parse chunk begin failed", out, outlen);
+    }
+    
+    ParseSession *session = add_session(doc);
+    if (!session) {
+        lxb_html_document_destroy(doc);
+        return error_response("Session creation failed", out, outlen);
+    }
+    
+    session->begun = 1;
+    session->ended = 0;
+    session->chunks_processed = 0;
+    
+    // Return: <<0:8, SessionId:64>>
+    unsigned char *buf = malloc(9);
+    if (!buf) return 0;
+    buf[0] = 0;  // success
+    write_uint64(buf + 1, session->session_id);
+    
+    *out = buf;
+    *outlen = 9;
+    return 1;
+}
+
+// Operation: PARSE_STREAM_CHUNK
+static int op_parse_stream_chunk(const unsigned char *payload, uint32_t plen,
+                                  unsigned char **out, uint32_t *outlen) {
+    if (plen < 8) return 0;
+    
+    // Extract SessionId
+    uint64_t sid = read_uint64(payload);
+    const unsigned char *chunk = payload + 8;
+    uint32_t chunk_len = plen - 8;
+    
+    ParseSession *session = find_session(sid);
+    if (!session || !session->begun || session->ended) {
+        return error_response("Invalid session", out, outlen);
+    }
+    
+    // Parse this chunk
+    lxb_status_t st = lxb_html_document_parse_chunk(session->doc, 
+                                                     (const lxb_char_t*)chunk, 
+                                                     (size_t)chunk_len);
+    if (st != LXB_STATUS_OK) {
+        return error_response("Parse chunk failed", out, outlen);
+    }
+    
+    session->chunks_processed++;
+    
+    // Success
+    unsigned char *buf = malloc(1);
+    if (!buf) return 0;
+    buf[0] = 0;  // success
+    *out = buf;
+    *outlen = 1;
+    return 1;
+}
+
+// Operation: PARSE_STREAM_END
+static int op_parse_stream_end(const unsigned char *payload, uint32_t plen,
+                                unsigned char **out, uint32_t *outlen) {
+    if (plen != 8) return 0;
+    
+    uint64_t sid = read_uint64(payload);
+    
+    ParseSession *session = find_session(sid);
+    if (!session || !session->begun || session->ended) {
+        return error_response("Invalid session", out, outlen);
+    }
+    
+    // Finalize parsing
+    lxb_status_t st = lxb_html_document_parse_chunk_end(session->doc);
+    if (st != LXB_STATUS_OK) {
+        return error_response("Parse chunk end failed", out, outlen);
+    }
+    
+    session->ended = 1;
+    
+    // Move document to document registry
+    Doc *doc_entry = add_doc(session->doc);
+    if (!doc_entry) {
+        return error_response("Document registration failed", out, outlen);
+    }
+    
+    // Remove session (document now owned by doc registry)
+    remove_session(sid);
+    
+    // Return: <<0:8, DocId:64>>
+    unsigned char *buf = malloc(9);
+    if (!buf) return 0;
+    buf[0] = 0;  // success
+    write_uint64(buf + 1, doc_entry->id);
+    
+    *out = buf;
+    *outlen = 9;
+    return 1;
+}
+
 /* ---------- main loop ---------- */
 int main(void){
     for(;;){
@@ -1225,6 +1381,21 @@ int main(void){
         }
         else if(tag_eq(tag,"REMOVE_NODE")){
             if(!op_remove_node(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"PARSE_STREAM_BEGIN")){
+            if(!op_parse_stream_begin(&resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"PARSE_STREAM_CHUNK")){
+            if(!op_parse_stream_chunk(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"PARSE_STREAM_END")){
+            if(!op_parse_stream_end(payload, plen, &resp, &rplen)){ 
                 free(req); break; 
             }
         }

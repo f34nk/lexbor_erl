@@ -114,6 +114,177 @@ static uint64_t read_uint64_be(const unsigned char *buf) {
            ((uint64_t)buf[6] << 8) | (uint64_t)buf[7];
 }
 
+/* Aliases for streaming tests */
+static inline void write_uint64(unsigned char *buf, uint64_t val) {
+    write_uint64_be(buf, val);
+}
+
+static inline uint64_t read_uint64(const unsigned char *buf) {
+    return read_uint64_be(buf);
+}
+
+static inline void write_uint32(unsigned char *buf, uint32_t val) {
+    write_uint32_be(buf, val);
+}
+
+static inline uint32_t read_uint32(const unsigned char *buf) {
+    return read_uint32_be(buf);
+}
+
+/* Parse session registry for streaming tests */
+typedef struct {
+    uint64_t session_id;
+    lxb_html_document_t *doc;
+    int begun;
+    int ended;
+    size_t chunks_processed;
+} ParseSession;
+
+static ParseSession *sessions = NULL;
+static size_t sessions_len = 0, sessions_cap = 0;
+static uint64_t next_session_id = 1;
+
+static ParseSession* add_session(lxb_html_document_t *d) {
+    if (sessions_len == sessions_cap) {
+        size_t nc = sessions_cap ? sessions_cap * 2 : 16;
+        ParseSession *ns = (ParseSession*)realloc(sessions, nc * sizeof(ParseSession));
+        if (!ns) return NULL;
+        sessions = ns;
+        sessions_cap = nc;
+    }
+    sessions[sessions_len].session_id = next_session_id++;
+    sessions[sessions_len].doc = d;
+    sessions[sessions_len].begun = 0;
+    sessions[sessions_len].ended = 0;
+    sessions[sessions_len].chunks_processed = 0;
+    return &sessions[sessions_len++];
+}
+
+static ParseSession* find_session(uint64_t id) {
+    for (size_t i = 0; i < sessions_len; i++)
+        if (sessions[i].session_id == id) return &sessions[i];
+    return NULL;
+}
+
+static int remove_session(uint64_t id) {
+    for (size_t i = 0; i < sessions_len; i++) {
+        if (sessions[i].session_id == id) {
+            sessions[i] = sessions[sessions_len - 1];
+            sessions_len--;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Error response helper */
+static int error_response(const char *msg, unsigned char **out, uint32_t *outlen) {
+    size_t len = strlen(msg);
+    unsigned char *buf = (unsigned char*)malloc(1 + len);
+    if (!buf) return 0;
+    buf[0] = 1;  /* Error marker */
+    memcpy(buf + 1, msg, len);
+    *out = buf;
+    *outlen = 1 + len;
+    return 1;
+}
+
+/* Streaming parser operations */
+static int op_parse_stream_begin(unsigned char **out, uint32_t *outlen) {
+    lxb_html_document_t *doc = lxb_html_document_create();
+    if (!doc) return 0;
+    
+    lxb_status_t st = lxb_html_document_parse_chunk_begin(doc);
+    if (st != LXB_STATUS_OK) {
+        lxb_html_document_destroy(doc);
+        return error_response("Parse chunk begin failed", out, outlen);
+    }
+    
+    ParseSession *session = add_session(doc);
+    if (!session) {
+        lxb_html_document_destroy(doc);
+        return error_response("Session creation failed", out, outlen);
+    }
+    
+    session->begun = 1;
+    session->ended = 0;
+    session->chunks_processed = 0;
+    
+    unsigned char *buf = malloc(9);
+    if (!buf) return 0;
+    buf[0] = 0;  // success
+    write_uint64(buf + 1, session->session_id);
+    
+    *out = buf;
+    *outlen = 9;
+    return 1;
+}
+
+static int op_parse_stream_chunk(const unsigned char *payload, uint32_t plen,
+                                  unsigned char **out, uint32_t *outlen) {
+    if (plen < 8) return 0;
+    
+    uint64_t sid = read_uint64(payload);
+    const unsigned char *chunk = payload + 8;
+    uint32_t chunk_len = plen - 8;
+    
+    ParseSession *session = find_session(sid);
+    if (!session || !session->begun || session->ended) {
+        return error_response("Invalid session", out, outlen);
+    }
+    
+    lxb_status_t st = lxb_html_document_parse_chunk(session->doc, 
+                                                     (const lxb_char_t*)chunk, 
+                                                     (size_t)chunk_len);
+    if (st != LXB_STATUS_OK) {
+        return error_response("Parse chunk failed", out, outlen);
+    }
+    
+    session->chunks_processed++;
+    
+    unsigned char *buf = malloc(1);
+    if (!buf) return 0;
+    buf[0] = 0;  // success
+    *out = buf;
+    *outlen = 1;
+    return 1;
+}
+
+static int op_parse_stream_end(const unsigned char *payload, uint32_t plen,
+                                unsigned char **out, uint32_t *outlen) {
+    if (plen != 8) return 0;
+    
+    uint64_t sid = read_uint64(payload);
+    
+    ParseSession *session = find_session(sid);
+    if (!session || !session->begun || session->ended) {
+        return error_response("Invalid session", out, outlen);
+    }
+    
+    lxb_status_t st = lxb_html_document_parse_chunk_end(session->doc);
+    if (st != LXB_STATUS_OK) {
+        return error_response("Parse chunk end failed", out, outlen);
+    }
+    
+    session->ended = 1;
+    
+    Doc *doc_entry = add_doc(session->doc);
+    if (!doc_entry) {
+        return error_response("Document registration failed", out, outlen);
+    }
+    
+    remove_session(sid);
+    
+    unsigned char *buf = malloc(9);
+    if (!buf) return 0;
+    buf[0] = 0;  // success
+    write_uint64(buf + 1, doc_entry->id);
+    
+    *out = buf;
+    *outlen = 9;
+    return 1;
+}
+
 /* ========================================================================
  * Test Helper Functions
  * ======================================================================== */
@@ -924,6 +1095,362 @@ TEST(dom_complex_building) {
 }
 
 /* ========================================================================
+ * Streaming Parser Tests
+ * ======================================================================== */
+
+TEST(stream_begin_end_basic) {
+    // Test basic begin/end sequence
+    unsigned char *out = NULL;
+    uint32_t outlen = 0;
+    
+    // Begin streaming
+    int result = op_parse_stream_begin(&out, &outlen);
+    ASSERT(result == 1);
+    ASSERT(out != NULL);
+    ASSERT(outlen == 9);
+    ASSERT(out[0] == 0);  // success marker
+    
+    // Extract session ID
+    uint64_t session_id = read_uint64(out + 1);
+    ASSERT(session_id > 0);
+    
+    free(out);
+    out = NULL;
+    
+    // Feed a complete HTML chunk
+    const char *html = "<html><body><p>Test</p></body></html>";
+    uint32_t html_len = strlen(html);
+    uint32_t chunk_payload_len = 8 + html_len;
+    unsigned char *chunk_payload = malloc(chunk_payload_len);
+    write_uint64(chunk_payload, session_id);
+    memcpy(chunk_payload + 8, html, html_len);
+    
+    result = op_parse_stream_chunk(chunk_payload, chunk_payload_len, &out, &outlen);
+    ASSERT(result == 1);
+    ASSERT(out != NULL);
+    ASSERT(outlen == 1);
+    ASSERT(out[0] == 0);  // success
+    
+    free(chunk_payload);
+    free(out);
+    out = NULL;
+    
+    // End streaming
+    unsigned char end_payload[8];
+    write_uint64(end_payload, session_id);
+    
+    result = op_parse_stream_end(end_payload, 8, &out, &outlen);
+    ASSERT(result == 1);
+    ASSERT(out != NULL);
+    ASSERT(outlen == 9);
+    ASSERT(out[0] == 0);  // success
+    
+    uint64_t doc_id = read_uint64(out + 1);
+    ASSERT(doc_id > 0);
+    
+    free(out);
+    
+    // Verify document was registered and contains our content
+    Doc *doc_entry = find_doc(doc_id);
+    ASSERT(doc_entry != NULL);
+    ASSERT(doc_entry->doc != NULL);
+    
+    // Cleanup
+    remove_doc(doc_id);
+}
+
+TEST(stream_multiple_chunks) {
+    // Test streaming with multiple chunks
+    unsigned char *out = NULL;
+    uint32_t outlen = 0;
+    
+    // Begin
+    int result = op_parse_stream_begin(&out, &outlen);
+    ASSERT(result == 1);
+    uint64_t session_id = read_uint64(out + 1);
+    free(out);
+    
+    // Feed HTML in 3 chunks
+    const char *chunks[] = {
+        "<html><body>",
+        "<p>Chunk 1</p><p>Chunk 2</p>",
+        "</body></html>"
+    };
+    
+    for (int i = 0; i < 3; i++) {
+        uint32_t chunk_len = strlen(chunks[i]);
+        uint32_t payload_len = 8 + chunk_len;
+        unsigned char *payload = malloc(payload_len);
+        write_uint64(payload, session_id);
+        memcpy(payload + 8, chunks[i], chunk_len);
+        
+        result = op_parse_stream_chunk(payload, payload_len, &out, &outlen);
+        ASSERT(result == 1);
+        ASSERT(out[0] == 0);
+        
+        free(payload);
+        free(out);
+    }
+    
+    // End
+    unsigned char end_payload[8];
+    write_uint64(end_payload, session_id);
+    result = op_parse_stream_end(end_payload, 8, &out, &outlen);
+    ASSERT(result == 1);
+    
+    uint64_t doc_id = read_uint64(out + 1);
+    free(out);
+    
+    // Verify document
+    Doc *doc_entry = find_doc(doc_id);
+    ASSERT(doc_entry != NULL);
+    
+    // Check that both paragraphs are in the document
+    lexbor_str_t str = {0};
+    lxb_html_serialize_tree_str(lxb_dom_interface_node(doc_entry->doc), &str);
+    
+    ASSERT(memmem(str.data, str.length, "Chunk 1", 7) != NULL);
+    ASSERT(memmem(str.data, str.length, "Chunk 2", 7) != NULL);
+    
+    lexbor_str_destroy(&str, doc_entry->doc->dom_document.text, false);
+    remove_doc(doc_id);
+}
+
+TEST(stream_split_in_tag) {
+    // Test streaming where chunk boundary splits a tag
+    unsigned char *out = NULL;
+    uint32_t outlen = 0;
+    
+    // Begin
+    op_parse_stream_begin(&out, &outlen);
+    uint64_t session_id = read_uint64(out + 1);
+    free(out);
+    
+    // Feed HTML with split in middle of opening tag
+    const char *chunks[] = {
+        "<html><body><p cla",      // Split in attribute name
+        "ss='test'>Content",        // Continue attribute and content
+        "</p></body></html>"
+    };
+    
+    for (int i = 0; i < 3; i++) {
+        uint32_t chunk_len = strlen(chunks[i]);
+        uint32_t payload_len = 8 + chunk_len;
+        unsigned char *payload = malloc(payload_len);
+        write_uint64(payload, session_id);
+        memcpy(payload + 8, chunks[i], chunk_len);
+        
+        op_parse_stream_chunk(payload, payload_len, &out, &outlen);
+        free(payload);
+        free(out);
+    }
+    
+    // End
+    unsigned char end_payload[8];
+    write_uint64(end_payload, session_id);
+    op_parse_stream_end(end_payload, 8, &out, &outlen);
+    uint64_t doc_id = read_uint64(out + 1);
+    free(out);
+    
+    // Verify the attribute was parsed correctly
+    Doc *doc_entry = find_doc(doc_id);
+    ASSERT(doc_entry != NULL);
+    
+    lxb_dom_node_t *body = lxb_dom_interface_node(doc_entry->doc->body);
+    lxb_dom_node_t *p_node = body->first_child;
+    ASSERT(p_node != NULL);
+    
+    lxb_dom_element_t *p_elem = lxb_dom_interface_element(p_node);
+    const lxb_char_t *class_val = lxb_dom_element_get_attribute(
+        p_elem, (const lxb_char_t*)"class", 5, NULL);
+    
+    ASSERT(class_val != NULL);
+    ASSERT(memcmp(class_val, "test", 4) == 0);
+    
+    remove_doc(doc_id);
+}
+
+TEST(stream_invalid_session_chunk) {
+    // Test chunk operation with invalid session ID
+    unsigned char *out = NULL;
+    uint32_t outlen = 0;
+    
+    uint64_t invalid_session = 999999;
+    const char *html = "<p>Test</p>";
+    uint32_t payload_len = 8 + strlen(html);
+    unsigned char *payload = malloc(payload_len);
+    write_uint64(payload, invalid_session);
+    memcpy(payload + 8, html, strlen(html));
+    
+    int result = op_parse_stream_chunk(payload, payload_len, &out, &outlen);
+    
+    // Should succeed (return 1) but indicate error in response
+    ASSERT(result == 1);
+    ASSERT(out != NULL);
+    ASSERT(outlen >= 1);
+    ASSERT(out[0] == 1);  // error marker
+    
+    free(payload);
+    free(out);
+}
+
+TEST(stream_invalid_session_end) {
+    // Test end operation with invalid session ID
+    unsigned char *out = NULL;
+    uint32_t outlen = 0;
+    
+    uint64_t invalid_session = 999999;
+    unsigned char payload[8];
+    write_uint64(payload, invalid_session);
+    
+    int result = op_parse_stream_end(payload, 8, &out, &outlen);
+    
+    // Should succeed (return 1) but indicate error in response
+    ASSERT(result == 1);
+    ASSERT(out != NULL);
+    ASSERT(outlen >= 1);
+    ASSERT(out[0] == 1);  // error marker
+    
+    free(out);
+}
+
+TEST(stream_reuse_after_end) {
+    // Test that session cannot be reused after end
+    unsigned char *out = NULL;
+    uint32_t outlen = 0;
+    
+    // Begin and immediately end
+    op_parse_stream_begin(&out, &outlen);
+    uint64_t session_id = read_uint64(out + 1);
+    free(out);
+    
+    unsigned char end_payload[8];
+    write_uint64(end_payload, session_id);
+    op_parse_stream_end(end_payload, 8, &out, &outlen);
+    uint64_t doc_id = read_uint64(out + 1);
+    free(out);
+    
+    // Try to use session after it's been ended
+    const char *html = "<p>Test</p>";
+    uint32_t payload_len = 8 + strlen(html);
+    unsigned char *payload = malloc(payload_len);
+    write_uint64(payload, session_id);
+    memcpy(payload + 8, html, strlen(html));
+    
+    int result = op_parse_stream_chunk(payload, payload_len, &out, &outlen);
+    ASSERT(result == 1);
+    ASSERT(out[0] == 1);  // error - session already ended
+    
+    free(payload);
+    free(out);
+    remove_doc(doc_id);
+}
+
+TEST(stream_large_chunks) {
+    // Test streaming with many small chunks
+    unsigned char *out = NULL;
+    uint32_t outlen = 0;
+    
+    // Begin
+    op_parse_stream_begin(&out, &outlen);
+    uint64_t session_id = read_uint64(out + 1);
+    free(out);
+    
+    // Send opening
+    const char *open = "<html><body><ul>";
+    uint32_t open_len = strlen(open);
+    unsigned char *open_payload = malloc(8 + open_len);
+    write_uint64(open_payload, session_id);
+    memcpy(open_payload + 8, open, open_len);
+    op_parse_stream_chunk(open_payload, 8 + open_len, &out, &outlen);
+    free(open_payload);
+    free(out);
+    
+    // Send 50 list items as separate chunks
+    for (int i = 1; i <= 50; i++) {
+        char item[64];
+        int item_len = snprintf(item, sizeof(item), "<li>Item %d</li>", i);
+        
+        unsigned char *item_payload = malloc(8 + item_len);
+        write_uint64(item_payload, session_id);
+        memcpy(item_payload + 8, item, item_len);
+        
+        op_parse_stream_chunk(item_payload, 8 + item_len, &out, &outlen);
+        free(item_payload);
+        free(out);
+    }
+    
+    // Send closing
+    const char *close = "</ul></body></html>";
+    uint32_t close_len = strlen(close);
+    unsigned char *close_payload = malloc(8 + close_len);
+    write_uint64(close_payload, session_id);
+    memcpy(close_payload + 8, close, close_len);
+    op_parse_stream_chunk(close_payload, 8 + close_len, &out, &outlen);
+    free(close_payload);
+    free(out);
+    
+    // End
+    unsigned char end_payload[8];
+    write_uint64(end_payload, session_id);
+    op_parse_stream_end(end_payload, 8, &out, &outlen);
+    uint64_t doc_id = read_uint64(out + 1);
+    free(out);
+    
+    // Verify all items are present
+    Doc *doc_entry = find_doc(doc_id);
+    ASSERT(doc_entry != NULL);
+    
+    lexbor_str_t str = {0};
+    lxb_html_serialize_tree_str(lxb_dom_interface_node(doc_entry->doc), &str);
+    
+    // Check for first and last items
+    ASSERT(memmem(str.data, str.length, "Item 1", 6) != NULL);
+    ASSERT(memmem(str.data, str.length, "Item 50", 7) != NULL);
+    
+    lexbor_str_destroy(&str, doc_entry->doc->dom_document.text, false);
+    remove_doc(doc_id);
+}
+
+TEST(stream_empty_chunk) {
+    // Test that empty chunks are handled gracefully
+    unsigned char *out = NULL;
+    uint32_t outlen = 0;
+    
+    // Begin
+    op_parse_stream_begin(&out, &outlen);
+    uint64_t session_id = read_uint64(out + 1);
+    free(out);
+    
+    // Send empty chunk
+    unsigned char empty_payload[8];
+    write_uint64(empty_payload, session_id);
+    int result = op_parse_stream_chunk(empty_payload, 8, &out, &outlen);
+    ASSERT(result == 1);
+    ASSERT(out[0] == 0);  // should succeed
+    free(out);
+    
+    // Send actual content
+    const char *html = "<html><body><p>Test</p></body></html>";
+    uint32_t html_len = strlen(html);
+    unsigned char *html_payload = malloc(8 + html_len);
+    write_uint64(html_payload, session_id);
+    memcpy(html_payload + 8, html, html_len);
+    op_parse_stream_chunk(html_payload, 8 + html_len, &out, &outlen);
+    free(html_payload);
+    free(out);
+    
+    // End
+    unsigned char end_payload[8];
+    write_uint64(end_payload, session_id);
+    op_parse_stream_end(end_payload, 8, &out, &outlen);
+    uint64_t doc_id = read_uint64(out + 1);
+    free(out);
+    
+    remove_doc(doc_id);
+}
+
+/* ========================================================================
  * Test Runner
  * ======================================================================== */
 
@@ -985,6 +1512,16 @@ int main(void) {
     RUN_TEST(dom_insert_before);
     RUN_TEST(dom_remove_node);
     RUN_TEST(dom_complex_building);
+    
+    /* Streaming parser tests */
+    RUN_TEST(stream_begin_end_basic);
+    RUN_TEST(stream_multiple_chunks);
+    RUN_TEST(stream_split_in_tag);
+    RUN_TEST(stream_invalid_session_chunk);
+    RUN_TEST(stream_invalid_session_end);
+    RUN_TEST(stream_reuse_after_end);
+    RUN_TEST(stream_large_chunks);
+    RUN_TEST(stream_empty_chunk);
     
     /* Clean up document registry */
     if (docs) {

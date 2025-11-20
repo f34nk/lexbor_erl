@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Chunk Based Streaming Parser
+
+### Added
+- Streaming HTML parser for incremental document processing
+- Three-phase streaming API:
+  - `parse_stream_begin/0` - Initialize parse session
+  - `parse_stream_chunk/2` - Feed HTML chunks incrementally
+  - `parse_stream_end/1` - Finalize and get document
+- Parse session registry in C port with independent session tracking
+- Support for arbitrary chunk boundaries (can split mid-tag, mid-attribute)
+- 7 streaming parser integration tests covering:
+  - Basic streaming with multiple chunks
+  - Splitting in middle of tags and attributes
+  - Large document streaming (1000+ elements)
+  - Equivalence with normal parsing
+  - Invalid session handling
+  - Parallel streaming sessions
+- 8 C unit tests for streaming operations covering:
+  - Basic begin/end sequence
+  - Multiple chunks processing
+  - Tag boundary splitting
+  - Invalid session handling
+  - Session reuse prevention
+  - Large document streaming (50 chunks)
+  - Empty chunk handling
+- `chunk_based_streaming_example.erl` with 5 comprehensive examples
+- Session ID encoding with worker affinity for proper routing
+
+### Changed
+- Test suite expanded to 51 Erlang tests (44 core + 7 streaming)
+- C unit tests expanded to 46 tests (38 core + 8 streaming)
+- Worker pool routing enhanced to handle invalid DocIds/SessionIds gracefully
+- C port supports 3 additional streaming operations
+
+### Benefits
+- Memory-efficient parsing of very large documents
+- Suitable for network streaming scenarios
+- Early processing before full document arrival
+- Progress monitoring during parse
+
 ## [Unreleased] - DOM Manipulation
 
 ### Added
