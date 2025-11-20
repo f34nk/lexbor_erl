@@ -1,11 +1,11 @@
 name: CI
 
 on:
-  push:
-    branches: [ main, parallelism, dom-manipulation, chunk-based-streaming-parser, ci ]
   pull_request:
-    branches: [ main, parallelism, dom-manipulation, chunk-based-streaming-parser ]
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - '*'
 
 jobs:
   build:
