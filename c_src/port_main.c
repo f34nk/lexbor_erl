@@ -956,48 +956,34 @@ static int op_set_inner_html(const unsigned char *payload, uint32_t plen,
             return error_response("parse_html_failed", out, outlen);
         }
         
-        /* Move parsed nodes from temp document body to target element */
+        /* Import nodes from temp document to target document */
         lxb_dom_node_t *body = lxb_dom_interface_node(temp_doc->body);
-        if (body) {
+        if (body && body->first_child) {
             lxb_dom_node_t *temp_child = body->first_child;
+            
             while (temp_child) {
                 lxb_dom_node_t *next = temp_child->next;
-                lxb_dom_node_remove(temp_child);
                 
-                /* Append to target */
-                lxb_dom_node_insert_child(node, temp_child);
+                /* Import node from temp document to target document.
+                 * This copies ALL data (including text strings) to target
+                 * document's memory pool using the W3C DOM importNode() API. */
+                lxb_dom_node_t *imported = lxb_dom_document_import_node(
+                    lxb_dom_interface_document(d->doc),  // Target document
+                    temp_child,                           // Source node
+                    true                                  // Deep clone (include children)
+                );
                 
-                /* Change owner document recursively for the entire subtree 
-                 * AFTER insertion, in case lxb_dom_node_insert_child modifies it */
-                lxb_dom_node_t *walk = temp_child;
-                while (walk) {
-                    walk->owner_document = node->owner_document;
-                    if (walk->first_child) {
-                        walk = walk->first_child;
-                    } else if (walk->next) {
-                        walk = walk->next;
-                    } else {
-                        while (walk && !walk->next) {
-                            walk = walk->parent;
-                            if (walk == temp_child) {
-                                walk = NULL;
-                                break;
-                            }
-                        }
-                        if (walk) walk = walk->next;
-                    }
+                if (imported) {
+                    /* Insert imported node into target */
+                    lxb_dom_node_insert_child(node, imported);
                 }
                 
                 temp_child = next;
             }
         }
         
-        /* DON'T destroy temp_doc! The transferred nodes' text content
-         * is still allocated in temp_doc's memory. Destroying it would
-         * free that memory, causing use-after-free. This is a memory leak,
-         * but better than crashing. TODO: Find proper Lexbor API for
-         * adopting nodes across documents. */
-        // lxb_html_document_destroy(temp_doc);  // ← COMMENTED OUT!
+        /* Safe to destroy temp_doc: all data has been copied to target document */
+        lxb_html_document_destroy(temp_doc);
     }
     
     /* Success */
