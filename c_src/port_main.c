@@ -798,7 +798,7 @@ static int op_get_text(const unsigned char *payload, uint32_t plen,
     size_t text_len;
     const lxb_char_t *text = lxb_dom_node_text_content(node, &text_len);
     
-    if (!text && text_len > 0) {
+    if (!text) {
         return error_response("text_extraction_failed", out, outlen);
     }
     
