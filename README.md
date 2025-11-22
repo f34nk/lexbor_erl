@@ -1,5 +1,9 @@
 # lexbor_erl
 
+[![CI](https://github.com/f34nk/lexbor_erl/actions/workflows/ci.yml/badge.svg)](https://github.com/f34nk/lexbor_erl/actions/workflows/ci.yml)
+[![lexbor_erl version](https://img.shields.io/hexpm/v/lexbor_erl.svg)](https://hex.pm/packages/lexbor_erl)
+[![Hex.pm](https://img.shields.io/hexpm/dt/lexbor_erl.svg)](https://hex.pm/packages/lexbor_erl)
+
 An Erlang wrapper for the [Lexbor](https://github.com/lexbor/lexbor) HTML parser and DOM library via a port-based architecture.
 
 ## Overview
@@ -185,7 +189,7 @@ application:set_env(lexbor_erl, pool_size, 8).
 
 ## License
 
-Apache 2.0
+LGPL-2.1-or-later
 
 ## Credits
 
