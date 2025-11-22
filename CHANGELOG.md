@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] - Demo application
+
+### Added
+- **Demo application** in `demo/` directory that verifies the published hex.pm package works correctly
+- Complete demonstration of all 7 major feature areas:
+  - Basic HTML parsing and document lifecycle
+  - CSS selectors (ID, class, tag, complex selectors)
+  - Attribute operations (get, set, remove)
+  - Text content manipulation (get, set recursively)
+  - DOM manipulation (create elements, append children, get outer HTML)
+  - Document serialization with round-trip verification
+  - Streaming parser for incremental HTML processing
+- Makefile for convenient demo execution (`make` in demo directory)
+- Comprehensive README in `demo/` explaining why escripts don't work with port-based applications
+
+### Technical Details
+- Demo fetches `lexbor_erl` v0.1.0 from hex.pm (not local source)
+- Uses `erl -pa` execution instead of escript (required for port-based applications)
+- Provides verification that the published package compiles and runs correctly
+- All demo tests pass with clear ✓ indicators for each feature
+
 ## [Released] - 0.1.0
 - Published to hex.pm: https://hex.pm/packages/lexbor_erl
 
