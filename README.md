@@ -126,9 +126,31 @@ ok
 ok
 ```
 
-See the [examples/](https://github.com/f34nk/lexbor_erl/tree/main/examples) directory for complete working examples:
+Also check out [examples/](https://github.com/f34nk/lexbor_erl/tree/main/examples) directory.
 
-## Configuration
+## How to use it in your application?
+
+Add to your `rebar.config`:
+
+```erlang
+{deps, [
+    {lexbor_erl, "0.1.0"}
+]}.
+```
+
+Then run:
+
+```shell
+rebar3 get-deps
+rebar3 compile
+```
+
+**Note**: lexbor_erl is a port-based application and cannot be packaged as an escript. 
+It must be used as a library dependency with access to the compiled C port executable.
+
+See the [demo/](https://github.com/f34nk/lexbor_erl/tree/main/demo) directory for complete working application.
+
+## Additional configuration
 
 In your `sys.config`:
 

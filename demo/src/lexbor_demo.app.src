@@ -1,0 +1,10 @@
+{application, lexbor_demo,
+ [{description, "Demo application for lexbor_erl from hex.pm"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications, [kernel, stdlib, lexbor_erl]},
+  {env, []},
+  {modules, []},
+  {licenses, ["Public Domain"]},
+  {links, []}
+ ]}.

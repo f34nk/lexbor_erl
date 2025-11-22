@@ -116,3 +116,16 @@ publish/release: _build/default/lib/lexbor_erl
 	#
 	rebar3 hex publish
 	
+.PHONY: demo
+demo:
+	#
+	# Run demo
+	#
+	cd demo && make
+
+.PHONY: demo
+demo/clean:
+	#
+	# Clean demo
+	#
+	cd demo && make clean
