@@ -5,6 +5,7 @@
 
 /* Lexbor */
 #include <lexbor/html/parser.h>
+#include <lexbor/html/interfaces/element.h>
 #include <lexbor/dom/interfaces/document.h>
 #include <lexbor/dom/interfaces/element.h>
 #include <lexbor/dom/interfaces/node.h>
@@ -904,7 +905,20 @@ static int op_inner_html(const unsigned char *payload, uint32_t plen,
     return 1;
 }
 
-/* SET_INNER_HTML: Set inner HTML of a node (parses and replaces children) */
+/* SET_INNER_HTML: Set inner HTML of a node (parses and replaces children)
+ * 
+ * Uses lexbor's official lxb_html_element_inner_html_set() API which:
+ * - Automatically removes existing children
+ * - Performs context-aware HTML parsing (respects parent element type)
+ * - Handles node importation and memory management
+ * - Applies HTML5 parsing rules correctly
+ * 
+ * This is the standard way to implement innerHTML in lexbor.
+ * 
+ * Previous implementation (prior to 2025-11-22) manually created temporary
+ * documents and imported nodes. The official API is simpler, faster, and
+ * handles edge cases better (e.g., <table> innerHTML parsing).
+ */
 static int op_set_inner_html(const unsigned char *payload, uint32_t plen,
                               unsigned char **out, uint32_t *outlen) {
     if (plen < 8 + 8 + 4) return 0;
@@ -934,56 +948,21 @@ static int op_set_inner_html(const unsigned char *payload, uint32_t plen,
     
     lxb_dom_element_t *element = lxb_dom_interface_element(node);
     
-    /* Remove all existing children */
-    lxb_dom_node_t *child = node->first_child;
-    while (child) {
-        lxb_dom_node_t *next = child->next;
-        lxb_dom_node_remove(child);
-        lxb_dom_node_destroy(child);
-        child = next;
-    }
+    /* Use lexbor's official innerHTML API
+     * This automatically:
+     * - Removes existing children
+     * - Parses HTML with proper context awareness
+     * - Imports nodes into target document
+     * - Handles all memory management
+     */
+    lxb_html_element_t *result = lxb_html_element_inner_html_set(
+        lxb_html_interface_element(element),
+        html,
+        html_len
+    );
     
-    /* Parse new HTML into a temporary document fragment */
-    if (html_len > 0) {
-        lxb_html_document_t *temp_doc = lxb_html_document_create();
-        if (!temp_doc) {
-            return error_response("create_temp_doc_failed", out, outlen);
-        }
-        
-        lxb_status_t status = lxb_html_document_parse(temp_doc, html, html_len);
-        if (status != LXB_STATUS_OK) {
-            lxb_html_document_destroy(temp_doc);
-            return error_response("parse_html_failed", out, outlen);
-        }
-        
-        /* Import nodes from temp document to target document */
-        lxb_dom_node_t *body = lxb_dom_interface_node(temp_doc->body);
-        if (body && body->first_child) {
-            lxb_dom_node_t *temp_child = body->first_child;
-            
-            while (temp_child) {
-                lxb_dom_node_t *next = temp_child->next;
-                
-                /* Import node from temp document to target document.
-                 * This copies ALL data (including text strings) to target
-                 * document's memory pool using the W3C DOM importNode() API. */
-                lxb_dom_node_t *imported = lxb_dom_document_import_node(
-                    lxb_dom_interface_document(d->doc),  // Target document
-                    temp_child,                           // Source node
-                    true                                  // Deep clone (include children)
-                );
-                
-                if (imported) {
-                    /* Insert imported node into target */
-                    lxb_dom_node_insert_child(node, imported);
-                }
-                
-                temp_child = next;
-            }
-        }
-        
-        /* Safe to destroy temp_doc: all data has been copied to target document */
-        lxb_html_document_destroy(temp_doc);
+    if (!result) {
+        return error_response("parse_html_failed", out, outlen);
     }
     
     /* Success */
