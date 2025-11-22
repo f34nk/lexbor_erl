@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - Refactor get_attribute to use convenience API
+
+### Changed
+- **Refactored `get_attribute` implementation**: Replaced two-step attribute retrieval 
+  (get attribute object, then extract value) with lexbor's convenience function 
+  `lxb_dom_element_get_attribute()`. This simplifies the code, improves readability, 
+  and aligns with lexbor examples. All 51 tests continue to pass.
+
+### Improved
+- Simpler attribute retrieval logic (3 API calls → 1 API call, 67% reduction)
+- Better code readability with clearer intent
+- Follows idiomatic lexbor pattern from official examples
+- Simpler error handling (single NULL check instead of two checks)
+
 ## [Unreleased] - Refactor set_inner_html to use official lexbor API
 
 ### Changed

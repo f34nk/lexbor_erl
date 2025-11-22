@@ -585,7 +585,16 @@ static int error_response(const char *msg, unsigned char **out, uint32_t *outlen
 
 /* ---------- DOM Manipulation Operations ---------- */
 
-/* GET_ATTRIBUTE: Get attribute value from element */
+/* GET_ATTRIBUTE: Get attribute value from element
+ * 
+ * Uses lexbor's convenience function lxb_dom_element_get_attribute() which
+ * directly returns the attribute value or NULL if not found. This is the
+ * idiomatic approach shown in lexbor examples.
+ * 
+ * Previous implementation (prior to 2025-11-22) used a two-step process:
+ * lxb_dom_element_attr_by_name() followed by lxb_dom_attr_value().
+ * Both approaches are correct; the convenience function is simpler.
+ */
 static int op_get_attribute(const unsigned char *payload, uint32_t plen,
                             unsigned char **out, uint32_t *outlen) {
     if (plen < 8 + 8 + 4) return 0;
@@ -618,11 +627,14 @@ static int op_get_attribute(const unsigned char *payload, uint32_t plen,
     }
     
     lxb_dom_element_t *element = lxb_dom_interface_element(node);
-    lxb_dom_attr_t *attr = lxb_dom_element_attr_by_name(
-        element, attr_name, attr_len
+    
+    /* Get attribute value directly using convenience API */
+    size_t value_len;
+    const lxb_char_t *value = lxb_dom_element_get_attribute(
+        element, attr_name, attr_len, &value_len
     );
     
-    if (!attr || !attr->value) {
+    if (!value) {
         /* Attribute not found - return special marker */
         unsigned char *buf = (unsigned char*)malloc(1);
         if (!buf) return 0;
@@ -631,10 +643,6 @@ static int op_get_attribute(const unsigned char *payload, uint32_t plen,
         *outlen = 1;
         return 1;
     }
-    
-    /* Return attribute value */
-    size_t value_len;
-    const lxb_char_t *value = lxb_dom_attr_value(attr, &value_len);
     
     /* Response: <<0:8, ValueLen:32, Value/binary>> */
     uint32_t resp_len = 1 + 4 + value_len;
