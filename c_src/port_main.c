@@ -427,12 +427,27 @@ static int op_outer_html(const unsigned char *payload, uint32_t plen,
     *out=b; *outlen=bl; return 1;
 }
 
-/* Serialize full document for PARSE_SERIALIZE */
+/* Serialize full document for PARSE_SERIALIZE
+ *
+ * Serializes from document node directly, which:
+ * - Preserves DOCTYPE declarations (if present in parsed HTML)
+ * - Matches the pattern used in all lexbor examples
+ * - Produces complete HTML5 documents
+ * - Simplifies code (1 call vs 3 nested calls)
+ *
+ * Previous implementation (prior to 2025-11-22) serialized from the document
+ * element (<html> tag), which omitted the DOCTYPE node. This meant DOCTYPE
+ * declarations were lost during serialization.
+ *
+ * Example:
+ *   Input:  <!DOCTYPE html><html><head>...</head><body>...</body></html>
+ *   Output: <!DOCTYPE html><html><head>...</head><body>...</body></html>
+ *   (DOCTYPE now preserved ✓)
+ */
 static int serialize_full_doc(lxb_html_document_t *doc, sbuf_t *out) {
-    lxb_dom_node_t *html_node = lxb_dom_interface_node(
-        lxb_dom_document_element(lxb_dom_interface_document(doc))
+    lxb_status_t status = lxb_html_serialize_tree_cb(
+        lxb_dom_interface_node(doc), sink_cb, out
     );
-    lxb_status_t status = lxb_html_serialize_tree_cb(html_node, sink_cb, out);
     return status == LXB_STATUS_OK;
 }
 
