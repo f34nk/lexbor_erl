@@ -867,7 +867,8 @@ remove_node(DocId, {node, Handle}) ->
 %% @param Selector CSS selector to find target elements
 %% @param Html HTML content to append to each matched element
 %% @returns `{ok, NumMatches}' with count of modified elements, or `{error, Reason}'
--spec append_content(doc_id(), selector(), html_bin()) -> {ok, non_neg_integer()} | {error, term()}.
+-spec append_content(doc_id(), selector(), html_bin()) ->
+                        {ok, non_neg_integer()} | {error, term()}.
 append_content(DocId, Selector, Html) when is_binary(Selector) ->
     HtmlBin = iolist_to_binary(Html),
     SelectorLen = byte_size(Selector),
