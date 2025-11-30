@@ -102,27 +102,34 @@ ok
 11> lexbor_erl:get_text(Doc, Li).
 {ok,<<"New Text">>}
 
+%% Content manipulation: append HTML to matching elements
+12> {ok, NumModified} = lexbor_erl:append_content(Doc, <<"ul">>, <<"<li>New Item</li>">>).
+{ok,1}
+
+13> {ok, Html} = lexbor_erl:serialize(Doc).
+{ok,<<"<!DOCTYPE html><html><head></head><body><div id=\"app\"><ul><li class=\"modified\">New Text</li><li class=\"b\">B</li><li>New Item</li></ul></div></body></html>">>}
+
 %% Streaming parser: parse incrementally
-12> {ok, Session} = lexbor_erl:parse_stream_begin().
+14> {ok, Session} = lexbor_erl:parse_stream_begin().
 {ok,72057594037927937}
 
-13> ok = lexbor_erl:parse_stream_chunk(Session, <<"<div><p>He">>).
+15> ok = lexbor_erl:parse_stream_chunk(Session, <<"<div><p>He">>).
 ok
 
-14> ok = lexbor_erl:parse_stream_chunk(Session, <<"llo</p></div>">>).
+16> ok = lexbor_erl:parse_stream_chunk(Session, <<"llo</p></div>">>).
 ok
 
-15> {ok, StreamDoc} = lexbor_erl:parse_stream_end(Session).
+17> {ok, StreamDoc} = lexbor_erl:parse_stream_end(Session).
 {ok,72057594037927938}
 
 %% Release documents
-16> ok = lexbor_erl:release(Doc).
+18> ok = lexbor_erl:release(Doc).
 ok
 
-17> ok = lexbor_erl:release(StreamDoc).
+19> ok = lexbor_erl:release(StreamDoc).
 ok
 
-18> lexbor_erl:stop().
+20> lexbor_erl:stop().
 ok
 ```
 
