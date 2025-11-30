@@ -99,7 +99,7 @@ docker/clean:
 	docker rmi -f test >/dev/null 2>&1 || true
 
 .PHONY: publish/build
-publish/build: compile
+publish/build: clean compile
 	#
 	# hex build
 	#

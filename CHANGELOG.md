@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - Add `prepend_content/3` operation
+## [Released] - 0.2.0 - Add `prepend_content/3` operation
 
 ### Added
 - **`prepend_content/3` operation**: Prepend HTML content to all elements matching a CSS selector

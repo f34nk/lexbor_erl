@@ -1,0 +1,8 @@
+{"1.2.0",
+[{<<"lexbor_erl">>,{pkg,<<"lexbor_erl">>,<<"0.2.0">>},0}]}.
+[
+{pkg_hash,[
+ {<<"lexbor_erl">>, <<"DBE7E181645ADAF9B02739611099BC37BDE5A50B3D8847E02CC2AD6493B98DDF">>}]},
+{pkg_hash_ext,[
+ {<<"lexbor_erl">>, <<"3B0CEBD0BBBA9390C8016268FC0230FB8A1C2385FB47DE8F1563C0371B466E27">>}]}
+].
