@@ -12,42 +12,29 @@
 
 %% CT callbacks
 -export([all/0, init_per_suite/1, end_per_suite/1]).
-
 %% Test cases
--export([
-    append_basic_single_match/1,
-    append_multiple_matches/1,
-    append_no_matches/1,
-    append_complex_html/1,
-    append_nested_elements/1,
-    append_void_elements/1,
-    append_to_empty_element/1,
-    append_multiple_times/1,
-    invalid_selector/1,
-    invalid_document/1,
-    append_with_attributes/1,
-    append_preserves_existing_content/1
-]).
+-export([append_basic_single_match/1, append_multiple_matches/1, append_no_matches/1,
+         append_complex_html/1, append_nested_elements/1, append_void_elements/1,
+         append_to_empty_element/1, append_multiple_times/1, invalid_selector/1,
+         invalid_document/1, append_with_attributes/1, append_preserves_existing_content/1]).
 
 %%--------------------------------------------------------------------
 %% CT Callbacks
 %%--------------------------------------------------------------------
 
 all() ->
-    [
-        append_basic_single_match,
-        append_multiple_matches,
-        append_no_matches,
-        append_complex_html,
-        append_nested_elements,
-        append_void_elements,
-        append_to_empty_element,
-        append_multiple_times,
-        invalid_selector,
-        invalid_document,
-        append_with_attributes,
-        append_preserves_existing_content
-    ].
+    [append_basic_single_match,
+     append_multiple_matches,
+     append_no_matches,
+     append_complex_html,
+     append_nested_elements,
+     append_void_elements,
+     append_to_empty_element,
+     append_multiple_times,
+     invalid_selector,
+     invalid_document,
+     append_with_attributes,
+     append_preserves_existing_content].
 
 init_per_suite(Config) ->
     ok = lexbor_erl:start(),
@@ -68,11 +55,11 @@ append_basic_single_match(_Config) ->
     {ok, 1} = lexbor_erl:append_content(Doc, <<"div">>, <<"<p>World</p>">>),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     %% Verify both paragraphs exist in order
     true = binary:match(Result, <<"<p>Hello</p>">>) =/= nomatch,
     true = binary:match(Result, <<"<p>World</p>">>) =/= nomatch,
-    
+
     %% Verify Hello comes before World
     {HelloPos, _} = binary:match(Result, <<"<p>Hello</p>">>),
     {WorldPos, _} = binary:match(Result, <<"<p>World</p>">>),
@@ -86,12 +73,14 @@ append_multiple_matches(_Config) ->
     {ok, 2} = lexbor_erl:append_content(Doc, <<".target">>, <<"<span>!</span>">>),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     %% Both divs should have spans appended
-    true = binary:match(Result, <<"A</div><span>!</span>">>) =/= nomatch orelse
-           binary:match(Result, <<"A<span>!</span></div>">>) =/= nomatch,
-    true = binary:match(Result, <<"B</div><span>!</span>">>) =/= nomatch orelse
-           binary:match(Result, <<"B<span>!</span></div>">>) =/= nomatch,
+    true =
+        binary:match(Result, <<"A</div><span>!</span>">>) =/= nomatch
+        orelse binary:match(Result, <<"A<span>!</span></div>">>) =/= nomatch,
+    true =
+        binary:match(Result, <<"B</div><span>!</span>">>) =/= nomatch
+        orelse binary:match(Result, <<"B<span>!</span></div>">>) =/= nomatch,
     ok.
 
 %% @doc Test append with no matches
@@ -101,7 +90,7 @@ append_no_matches(_Config) ->
     {ok, 0} = lexbor_erl:append_content(Doc, <<"span">>, <<"<p>World</p>">>),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     %% Original content should remain, new content should not appear
     true = binary:match(Result, <<"Hello">>) =/= nomatch,
     true = binary:match(Result, <<"World">>) =:= nomatch,
@@ -115,7 +104,7 @@ append_complex_html(_Config) ->
     {ok, 1} = lexbor_erl:append_content(Doc, <<"#container">>, NewHtml),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     %% Verify structure is preserved
     true = binary:match(Result, <<"<ul>">>) =/= nomatch,
     true = binary:match(Result, <<"<li>First</li>">>) =/= nomatch,
@@ -129,7 +118,7 @@ append_nested_elements(_Config) ->
     {ok, 1} = lexbor_erl:append_content(Doc, <<".deep">>, <<"<p>Content</p>">>),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     true = binary:match(Result, <<"<p>Content</p>">>) =/= nomatch,
     ok.
 
@@ -140,7 +129,7 @@ append_void_elements(_Config) ->
     {ok, 1} = lexbor_erl:append_content(Doc, <<"div">>, <<"<br><hr>">>),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     %% Void elements should be present
     true = binary:match(Result, <<"<br>">>) =/= nomatch,
     true = binary:match(Result, <<"<hr>">>) =/= nomatch,
@@ -153,7 +142,7 @@ append_to_empty_element(_Config) ->
     {ok, 1} = lexbor_erl:append_content(Doc, <<"#empty">>, <<"<p>Now has content</p>">>),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     true = binary:match(Result, <<"Now has content">>) =/= nomatch,
     ok.
 
@@ -166,12 +155,12 @@ append_multiple_times(_Config) ->
     {ok, 1} = lexbor_erl:append_content(Doc, <<"#list">>, <<"<li>Third</li>">>),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     %% All three items should be present in order
     true = binary:match(Result, <<"<li>First</li>">>) =/= nomatch,
     true = binary:match(Result, <<"<li>Second</li>">>) =/= nomatch,
     true = binary:match(Result, <<"<li>Third</li>">>) =/= nomatch,
-    
+
     %% Check order
     {FirstPos, _} = binary:match(Result, <<"First">>),
     {SecondPos, _} = binary:match(Result, <<"Second">>),
@@ -184,7 +173,8 @@ append_multiple_times(_Config) ->
 invalid_selector(_Config) ->
     Html = <<"<div>Test</div>">>,
     {ok, Doc} = lexbor_erl:parse(Html),
-    {error, "invalid_selector"} = lexbor_erl:append_content(Doc, <<"[[[invalid">>, <<"<p>X</p>">>),
+    {error, "invalid_selector"} =
+        lexbor_erl:append_content(Doc, <<"[[[invalid">>, <<"<p>X</p>">>),
     ok = lexbor_erl:release(Doc),
     ok.
 
@@ -192,7 +182,8 @@ invalid_selector(_Config) ->
 invalid_document(_Config) ->
     %% Use an ID that doesn't exist
     InvalidDocId = 999999999,
-    {error, "doc_not_found"} = lexbor_erl:append_content(InvalidDocId, <<"div">>, <<"<p>X</p>">>),
+    {error, "doc_not_found"} =
+        lexbor_erl:append_content(InvalidDocId, <<"div">>, <<"<p>X</p>">>),
     ok.
 
 %% @doc Test append with HTML containing attributes
@@ -203,7 +194,7 @@ append_with_attributes(_Config) ->
     {ok, 1} = lexbor_erl:append_content(Doc, <<"#container">>, NewHtml),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     %% Attributes should be preserved
     true = binary:match(Result, <<"href=\"/link\"">>) =/= nomatch,
     true = binary:match(Result, <<"class=\"link\"">>) =/= nomatch,
@@ -217,11 +208,11 @@ append_preserves_existing_content(_Config) ->
     {ok, 1} = lexbor_erl:append_content(Doc, <<"div">>, <<"<p>New</p>">>),
     {ok, Result} = lexbor_erl:serialize(Doc),
     ok = lexbor_erl:release(Doc),
-    
+
     %% Both existing and new content should be present
     true = binary:match(Result, <<"Existing">>) =/= nomatch,
     true = binary:match(Result, <<"New">>) =/= nomatch,
-    
+
     %% Existing should come before new
     {ExistingPos, _} = binary:match(Result, <<"Existing">>),
     {NewPos, _} = binary:match(Result, <<"New">>),
