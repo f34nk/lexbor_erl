@@ -1190,6 +1190,199 @@ static int op_remove_node(const unsigned char *payload, uint32_t plen,
     return 1;
 }
 
+/* ---------- content manipulation operations ---------- */
+
+/* Context for collecting matched elements */
+typedef struct {
+    lxb_dom_node_t **nodes;
+    size_t capacity;
+    size_t count;
+    lxb_html_document_t *doc;
+    const unsigned char *html;
+    size_t html_len;
+} append_context_t;
+
+/* Callback for selector matches - appends HTML to each match */
+static lxb_status_t append_match_cb(lxb_dom_node_t *node, 
+                                    lxb_css_selector_specificity_t spec, 
+                                    void *ctx) {
+    (void)spec;
+    append_context_t *ac = (append_context_t*)ctx;
+    
+    /* Resize array if needed */
+    if (ac->count == ac->capacity) {
+        size_t new_cap = ac->capacity * 2;
+        lxb_dom_node_t **new_arr = (lxb_dom_node_t**)realloc(
+            ac->nodes, new_cap * sizeof(lxb_dom_node_t*));
+        if (!new_arr) return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+        ac->nodes = new_arr;
+        ac->capacity = new_cap;
+    }
+    
+    /* Store the matched node */
+    ac->nodes[ac->count++] = node;
+    
+    return LXB_STATUS_OK;
+}
+
+/*
+ * APPEND_CONTENT: Append HTML content to all elements matching a CSS selector
+ * 
+ * Payload: <<DocId:64, SelectorLen:32, Selector/binary, HTMLLen:32, HTML/binary>>
+ * Response: <<0:8, NumAppended:64>> on success, <<1:8, ErrorMsg/binary>> on error
+ *
+ * This operation:
+ * 1. Parses the CSS selector
+ * 2. Finds all matching elements in the document
+ * 3. For each match, parses the HTML content into a temporary container
+ * 4. Appends all parsed nodes to the matched element
+ * 5. Returns the number of elements that were modified
+ *
+ * Note: This operation works on full HTML5 documents only. Scope extraction
+ * (body_children, body, head) is handled by ModestEx using regex after serialization.
+ */
+static int op_append_content(const unsigned char *payload, uint32_t plen,
+                             unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 4 + 4) return 0;
+    
+    /* Parse payload */
+    uint32_t pos = 0;
+    uint64_t doc_id = read_uint64(payload + pos);
+    pos += 8;
+    
+    uint32_t selector_len = read_uint32(payload + pos);
+    pos += 4;
+    
+    if (pos + selector_len + 4 > plen) return 0;
+    const unsigned char *selector = payload + pos;
+    pos += selector_len;
+    
+    uint32_t html_len = read_uint32(payload + pos);
+    pos += 4;
+    
+    if (pos + html_len != plen) return 0;
+    const unsigned char *html = payload + pos;
+    
+    /* Find document */
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    /* Create CSS parser */
+    lxb_css_parser_t *parser = lxb_css_parser_create();
+    if (!parser) {
+        return error_response("css_parser_create_failed", out, outlen);
+    }
+    
+    lxb_status_t status = lxb_css_parser_init(parser, NULL);
+    if (status != LXB_STATUS_OK) {
+        lxb_css_parser_destroy(parser, true);
+        return error_response("css_parser_init_failed", out, outlen);
+    }
+    
+    /* Parse selector */
+    lxb_css_selector_list_t *list = lxb_css_selectors_parse(parser, 
+                                                             selector, selector_len);
+    if (!list) {
+        lxb_css_parser_destroy(parser, true);
+        return error_response("invalid_selector", out, outlen);
+    }
+    
+    /* Create selectors engine */
+    lxb_selectors_t *selectors = lxb_selectors_create();
+    if (!selectors) {
+        lxb_css_parser_destroy(parser, true);
+        return error_response("selectors_create_failed", out, outlen);
+    }
+    
+    status = lxb_selectors_init(selectors);
+    if (status != LXB_STATUS_OK) {
+        lxb_selectors_destroy(selectors, true);
+        lxb_css_parser_destroy(parser, true);
+        return error_response("selectors_init_failed", out, outlen);
+    }
+    
+    /* Initialize context for collecting matches */
+    append_context_t ac = {
+        .nodes = (lxb_dom_node_t**)malloc(16 * sizeof(lxb_dom_node_t*)),
+        .capacity = 16,
+        .count = 0,
+        .doc = d->doc,
+        .html = html,
+        .html_len = html_len
+    };
+    
+    if (!ac.nodes) {
+        lxb_selectors_destroy(selectors, true);
+        lxb_css_parser_destroy(parser, true);
+        return error_response("allocation_failed", out, outlen);
+    }
+    
+    /* Find all matching elements */
+    lxb_dom_node_t *root = lxb_dom_interface_node(
+        lxb_html_document_body_element(d->doc));
+    status = lxb_selectors_find(selectors, root, list, append_match_cb, &ac);
+    
+    /* Cleanup selectors */
+    lxb_selectors_destroy(selectors, true);
+    lxb_css_parser_destroy(parser, true);
+    
+    if (status != LXB_STATUS_OK) {
+        free(ac.nodes);
+        return error_response("selector_match_failed", out, outlen);
+    }
+    
+    /* For each matched element, append the HTML content */
+    size_t num_appended = 0;
+    for (size_t i = 0; i < ac.count; i++) {
+        lxb_dom_node_t *target_node = ac.nodes[i];
+        
+        /* Create temporary container for parsing HTML fragment */
+        lxb_dom_element_t *temp_container = lxb_dom_document_create_element(
+            lxb_dom_interface_document(d->doc), 
+            (const lxb_char_t *)"div", 3, NULL);
+        
+        if (!temp_container) continue;
+        
+        /* Parse HTML fragment into temporary container */
+        lxb_html_element_t *parsed = lxb_html_element_inner_html_set(
+            lxb_html_interface_element(temp_container),
+            html, html_len);
+        
+        if (!parsed) {
+            lxb_dom_node_destroy(lxb_dom_interface_node(temp_container));
+            continue;
+        }
+        
+        /* Move all children from temp container to target element */
+        lxb_dom_node_t *child = lxb_dom_node_first_child(
+            lxb_dom_interface_node(temp_container));
+        while (child != NULL) {
+            lxb_dom_node_t *next = lxb_dom_node_next(child);
+            lxb_dom_node_remove(child);  /* Remove from temp container */
+            lxb_dom_node_insert_child(target_node, child);  /* Append to target */
+            child = next;
+        }
+        
+        /* Cleanup temp container */
+        lxb_dom_node_destroy(lxb_dom_interface_node(temp_container));
+        num_appended++;
+    }
+    
+    /* Cleanup */
+    free(ac.nodes);
+    
+    /* Return success with count */
+    unsigned char *buf = (unsigned char*)malloc(9);
+    if (!buf) return 0;
+    buf[0] = 0;  /* Success */
+    write_uint64(buf + 1, num_appended);
+    *out = buf;
+    *outlen = 9;
+    return 1;
+}
+
 /* ---------- streaming parser operations ---------- */
 
 // Operation: PARSE_STREAM_BEGIN
@@ -1393,6 +1586,11 @@ int main(void){
         }
         else if(tag_eq(tag,"REMOVE_NODE")){
             if(!op_remove_node(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"APPEND_CONTENT")){
+            if(!op_append_content(payload, plen, &resp, &rplen)){ 
                 free(req); break; 
             }
         }
