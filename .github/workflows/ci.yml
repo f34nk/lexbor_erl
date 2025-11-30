@@ -1,5 +1,9 @@
 name: CI
 
+env:
+  LEXBOR_VERSION: v2.6.0
+  REBAR3_VERSION: '3.22'
+  
 on:
   pull_request:
   push:
@@ -30,7 +34,7 @@ jobs:
       uses: erlef/setup-beam@v1
       with:
         otp-version: ${{ matrix.otp-version }}
-        rebar3-version: '3.22'
+        rebar3-version: ${{ env.REBAR3_VERSION }}
     
     - name: Install dependencies (Ubuntu)
       if: runner.os == 'Linux'
@@ -46,7 +50,7 @@ jobs:
     - name: Install lexbor library (Ubuntu)
       if: runner.os == 'Linux'
       run: |
-        git clone --depth 1 --branch v2.6.0 https://github.com/lexbor/lexbor.git /tmp/lexbor
+        git clone --depth 1 --branch ${{ env.LEXBOR_VERSION }} https://github.com/lexbor/lexbor.git /tmp/lexbor
         cd /tmp/lexbor
         cmake -B build -DCMAKE_BUILD_TYPE=Release
         cmake --build build
@@ -56,7 +60,7 @@ jobs:
     - name: Install lexbor library (macOS)
       if: runner.os == 'macOS'
       run: |
-        git clone --depth 1 --branch v2.3.0 https://github.com/lexbor/lexbor.git /tmp/lexbor
+        git clone --depth 1 --branch ${{ env.LEXBOR_VERSION }} https://github.com/lexbor/lexbor.git /tmp/lexbor
         cd /tmp/lexbor
         cmake -B build -DCMAKE_BUILD_TYPE=Release
         cmake --build build
