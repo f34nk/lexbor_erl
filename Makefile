@@ -1,5 +1,6 @@
 X:=$(shell find examples -type f -name "*.erl" -not -name examples -maxdepth 1 -exec basename {} \;)
 EXAMPLES:=$(foreach x,$(X),$(x))
+NEW_VERSION:=$(shell cat version.txt)
 
 .PHONY: all
 all: clean compile test-c test examples
@@ -115,6 +116,16 @@ publish/release: _build/default/lib/lexbor_erl
 	# hex publish release
 	#
 	rebar3 hex publish
+	
+CURRENT_VERSION:=$(shell awk -F'"' '/vsn/ {print $$2}' src/lexbor_erl.app.src)
+.PHONY: publish/bump-version
+publish/bump-version:
+	#
+	# bump version $(CURRENT_VERSION) to $(NEW_VERSION)
+	#
+	sed -i '' 's/{vsn, "$(CURRENT_VERSION)"}/{vsn, "$(NEW_VERSION)"}/g' src/lexbor_erl.app.src
+	sed -i '' 's/{lexbor_erl, "$(CURRENT_VERSION)"}/{lexbor_erl, "$(NEW_VERSION)"}/g' README.md
+	sed -i '' 's/{lexbor_erl, "$(CURRENT_VERSION)"}/{lexbor_erl, "$(NEW_VERSION)"}/g' demo/rebar.config
 	
 .PHONY: demo
 demo:
