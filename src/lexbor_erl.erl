@@ -50,7 +50,7 @@
          select/2, outer_html/2, parse_stream_begin/0, parse_stream_chunk/2, parse_stream_end/1,
          get_attribute/3, set_attribute/4, remove_attribute/3, get_text/2, set_text/3,
          inner_html/2, set_inner_html/3, serialize/1, create_element/2, append_child/3,
-         insert_before/4, remove_node/2, append_content/3]).
+         insert_before/4, remove_node/2, append_content/3, prepend_content/3]).
 
     %% stateless
 
@@ -880,6 +880,72 @@ append_content(DocId, Selector, Html) when is_binary(Selector) ->
           HtmlLen:32/big,
           HtmlBin/binary>>,
     case lexbor_erl_pool:call(DocId, {<<"APPEND_CONTENT">>, Payload}) of
+        {ok, <<0, NumMatches:64/big-unsigned-integer>>} ->
+            {ok, NumMatches};
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
+    end.
+
+%% @doc Prepend HTML content to all elements matching a CSS selector.
+%%
+%% Parses the CSS selector to find all matching elements in the document, then
+%% parses the HTML content and prepends it as children (before existing children)
+%% to each matched element. Returns the number of elements that were modified.
+%%
+%% This is a high-level operation that combines selector matching, HTML parsing,
+%% and DOM manipulation in a single atomic operation.
+%%
+%% <strong>Note:</strong> This operation works on full HTML5 documents. The document
+%% is always serialized as complete HTML5. Scope extraction (body_children, body, head)
+%% is handled by ModestEx using regex after receiving the full HTML output.
+%%
+%% == Example ==
+%% ```
+%% {ok, Doc} = lexbor_erl:parse(<<"<div><p>World</p></div>">>),
+%% {ok, 1} = lexbor_erl:prepend_content(Doc, <<"div">>, <<"<p>Hello</p>">>),
+%% {ok, Html} = lexbor_erl:serialize(Doc),
+%% % Html = <<"<!DOCTYPE html><html>...><div><p>Hello</p><p>World</p></div>...</html>">>
+%% ok = lexbor_erl:release(Doc).
+%% '''
+%%
+%% == Key Difference from append_content/3 ==
+%%
+%% While `append_content/3' adds content as the last child, `prepend_content/3'
+%% adds content as the first child. When multiple nodes are prepended, they are
+%% inserted in forward order to maintain their relative positions.
+%%
+%% == Error Handling ==
+%%
+%% Returns errors for:
+%% <ul>
+%%   <li>`doc_not_found' - Document ID is invalid</li>
+%%   <li>`invalid_selector' - CSS selector syntax error</li>
+%%   <li>`css_parser_create_failed' - Failed to create CSS parser</li>
+%%   <li>`css_parser_init_failed' - Failed to initialize CSS parser</li>
+%%   <li>`selectors_create_failed' - Failed to create selectors engine</li>
+%%   <li>`selectors_init_failed' - Failed to initialize selectors engine</li>
+%%   <li>`selector_match_failed' - Selector matching failed</li>
+%% </ul>
+%%
+%% @param DocId Document handle from {@link parse/1}
+%% @param Selector CSS selector to find target elements
+%% @param Html HTML content to prepend to each matched element
+%% @returns `{ok, NumMatches}' with count of modified elements, or `{error, Reason}'
+-spec prepend_content(doc_id(), selector(), html_bin()) ->
+                         {ok, non_neg_integer()} | {error, term()}.
+prepend_content(DocId, Selector, Html) when is_binary(Selector) ->
+    HtmlBin = iolist_to_binary(Html),
+    SelectorLen = byte_size(Selector),
+    HtmlLen = byte_size(HtmlBin),
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          SelectorLen:32/big,
+          Selector/binary,
+          HtmlLen:32/big,
+          HtmlBin/binary>>,
+    case lexbor_erl_pool:call(DocId, {<<"PREPEND_CONTENT">>, Payload}) of
         {ok, <<0, NumMatches:64/big-unsigned-integer>>} ->
             {ok, NumMatches};
         {ok, <<1, Err/binary>>} ->

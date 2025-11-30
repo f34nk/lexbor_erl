@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] - Add `prepend_content/3` operation
+
+### Added
+- **`prepend_content/3` operation**: Prepend HTML content to all elements matching a CSS selector
+  - Inserts content as first child (before existing children)
+  - Combines CSS selector matching, HTML parsing, and DOM manipulation in a single atomic operation
+  - Returns count of modified elements
+  - C implementation for optimal performance
+  - Erlang wrapper with comprehensive documentation
+
+### Technical Details
+- Uses lexbor's CSS selector engine for matching (same as append_content)
+- Parses HTML fragments using `lxb_html_element_inner_html_set()`
+- Inserts nodes before first child using `lxb_dom_node_insert_before()`
+- Maintains document order when prepending multiple nodes
+- Comprehensive error handling
+- O(n + m + k×m') complexity where n=DOM nodes, m=HTML length, k=matches, m'=parsed nodes
+
 ## [Unreleased] - Add `append_content/3` operation
 
 ### Added
@@ -7,8 +25,6 @@
   - Combines CSS selector matching, HTML parsing, and DOM manipulation in a single atomic operation
   - Returns count of modified elements
   - Erlang wrapper with comprehensive documentation
-- **Content manipulation operations section** in C port code with callback-based selector matching
-- Full HTML5 document support - no scope handling (scope is handled by ModestEx using regex)
 
 ### Technical Details
 - Uses lexbor's CSS selector engine for matching

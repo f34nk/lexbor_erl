@@ -149,7 +149,7 @@ Also check out [examples/](https://github.com/f34nk/lexbor_erl/tree/main/example
 ### CSS Selectors
 - `select/2` - Find elements using CSS selectors
 - Supports: ID (`#id`), class (`.class`), tag (`div`), attributes (`[attr=value]`)
-- Supports: combinators (` `, `>`, `+`, `~`), pseudo-classes (`:first-child`, `:nth-child()`, etc.)
+- Supports: combinators (Descendant ` `, Child `>`, Adjacent sibling `+`, General sibling `~`), pseudo-classes (`:first-child`, `:nth-child()`, etc.)
 
 ### DOM Queries
 - `outer_html/2` - Get outer HTML of element (including the element tag)
@@ -167,6 +167,7 @@ Also check out [examples/](https://github.com/f34nk/lexbor_erl/tree/main/example
 ### HTML Content Manipulation
 - `set_inner_html/3` - Replace element's children with parsed HTML
 - `append_content/3` - Append HTML content to all elements matching selector
+- `prepend_content/3` - Prepend as first child
 
 ### DOM Tree Manipulation
 - `create_element/2` - Create new element
