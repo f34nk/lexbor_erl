@@ -1,17 +1,24 @@
 # Changelog
 
+## [Unreleased] - Add `append_content/3` operation
+
+### Added
+- **`append_content/3` operation**: Append HTML content to all elements matching a CSS selector
+  - Combines CSS selector matching, HTML parsing, and DOM manipulation in a single atomic operation
+  - Returns count of modified elements
+  - Erlang wrapper with comprehensive documentation
+- **Content manipulation operations section** in C port code with callback-based selector matching
+- Full HTML5 document support - no scope handling (scope is handled by ModestEx using regex)
+
+### Technical Details
+- Uses lexbor's CSS selector engine for matching
+- Parses HTML fragments using `lxb_html_element_inner_html_set()`
+- O(n + m + k×m') complexity where n=DOM nodes, m=HTML length, k=matches, m'=parsed nodes
+
 ## [Unreleased] - Demo application
 
 ### Added
 - **Demo application** in `demo/` directory that verifies the published hex.pm package works correctly
-- Complete demonstration of all 7 major feature areas:
-  - Basic HTML parsing and document lifecycle
-  - CSS selectors (ID, class, tag, complex selectors)
-  - Attribute operations (get, set, remove)
-  - Text content manipulation (get, set recursively)
-  - DOM manipulation (create elements, append children, get outer HTML)
-  - Document serialization with round-trip verification
-  - Streaming parser for incremental HTML processing
 - Makefile for convenient demo execution (`make` in demo directory)
 - Comprehensive README in `demo/` explaining why escripts don't work with port-based applications
 
@@ -19,7 +26,6 @@
 - Demo fetches `lexbor_erl` v0.1.0 from hex.pm (not local source)
 - Uses `erl -pa` execution instead of escript (required for port-based applications)
 - Provides verification that the published package compiles and runs correctly
-- All demo tests pass with clear ✓ indicators for each feature
 
 ## [Released] - 0.1.0
 - Published to hex.pm: https://hex.pm/packages/lexbor_erl
@@ -28,9 +34,8 @@
 
 ### Improved
 - **Enhanced `serialize_full_doc` implementation**: Refactored to serialize from document node 
-  instead of document element, which now preserves DOCTYPE declarations. This simplifies the code 
-  (5 lines → 3 lines, 40% reduction), aligns with all lexbor examples, and produces complete 
-  HTML5 documents. All 55 tests pass (51 original + 4 new verification tests).
+  instead of document element, which now preserves DOCTYPE declarations. This simplifies the code and aligns with all lexbor examples, and produces complete 
+  HTML5 documents.
 
 ### Added
 - DOCTYPE declarations are now preserved during serialization
@@ -42,12 +47,10 @@
 - Serialization output now includes DOCTYPE when present in parsed HTML
 - Example: Input `<!DOCTYPE html><html>...</html>` now serializes with DOCTYPE preserved
 - Matches idiomatic lexbor pattern used in all official examples
-- Simpler implementation (3 function calls → 1, 67% reduction)
+- Simpler implementation
 
 ### Technical Details
 - Changed from `lxb_dom_document_element()` to direct document node serialization
-- Verified safe through comprehensive testing (4 new tests + 51 existing tests)
-- This is an improvement, not a breaking change (adds data, doesn't remove)
 
 ## [Unreleased] - Refactor get_attribute to use convenience API
 
@@ -58,7 +61,7 @@
   and aligns with lexbor examples. All 51 tests continue to pass.
 
 ### Improved
-- Simpler attribute retrieval logic (3 API calls → 1 API call, 67% reduction)
+- Simpler attribute retrieval logic
 - Better code readability with clearer intent
 - Follows idiomatic lexbor pattern from official examples
 - Simpler error handling (single NULL check instead of two checks)
@@ -66,15 +69,12 @@
 ## [Unreleased] - Refactor set_inner_html to use official lexbor API
 
 ### Changed
-- **Refactored `set_inner_html` implementation**: Replaced manual node importation with lexbor's official 
-  `lxb_html_element_inner_html_set()` API. This simplifies the code from 89 to 63 lines (29% reduction), 
-  improves maintainability, and adds context-aware HTML parsing (e.g., proper handling of innerHTML on 
-  `<table>` elements). All 51 tests continue to pass.
+- **Refactored `set_inner_html` implementation**: Replaced manual node importation with lexbor's official `lxb_html_element_inner_html_set()` API improves maintainability, and adds context-aware HTML parsing (e.g., proper handling of innerHTML on `<table>` elements)
 
 ### Improved
 - `set_inner_html` now uses the standard lexbor approach for innerHTML operations
 - Better alignment with lexbor best practices and examples
-- Simplified code maintenance (80% reduction in core logic lines)
+- Simplified code maintenance
 - Context-aware parsing follows HTML5 specification more accurately
 
 ## [Unreleased] - Bug in DOM maniplation
@@ -92,35 +92,23 @@
   - `parse_stream_end/1` - Finalize and get document
 - Parse session registry in C port with independent session tracking
 - Support for arbitrary chunk boundaries (can split mid-tag, mid-attribute)
-- 7 streaming parser integration tests covering:
+- streaming parser integration tests covering:
   - Basic streaming with multiple chunks
   - Splitting in middle of tags and attributes
-  - Large document streaming (1000+ elements)
+  - Large document streaming
   - Equivalence with normal parsing
   - Invalid session handling
   - Parallel streaming sessions
-- 8 C unit tests for streaming operations covering:
+- C unit tests for streaming operations covering:
   - Basic begin/end sequence
   - Multiple chunks processing
   - Tag boundary splitting
   - Invalid session handling
   - Session reuse prevention
-  - Large document streaming (50 chunks)
+  - Large document streaming
   - Empty chunk handling
-- `chunk_based_streaming_example.erl` with 5 comprehensive examples
+- `chunk_based_streaming_example.erl` with examples
 - Session ID encoding with worker affinity for proper routing
-
-### Changed
-- Test suite expanded to 51 Erlang tests (44 core + 7 streaming)
-- C unit tests expanded to 46 tests (38 core + 8 streaming)
-- Worker pool routing enhanced to handle invalid DocIds/SessionIds gracefully
-- C port supports 3 additional streaming operations
-
-### Benefits
-- Memory-efficient parsing of very large documents
-- Suitable for network streaming scenarios
-- Early processing before full document arrival
-- Progress monitoring during parse
 
 ## [Unreleased] - DOM Manipulation
 
@@ -130,12 +118,7 @@
   - Text/HTML: `get_text/2`, `set_text/3`, `inner_html/2`, `set_inner_html/3`, `serialize/1`
   - Nodes: `create_element/2`, `append_child/3`, `insert_before/4`, `remove_node/2`
 - C unit test suite with 38 tests
-- 14 DOM manipulation integration tests
-- 5 example programs: `attribute_example`, `text_example`, `node_example`, `select_example`, `unicode_example`
-
-### Changed
-- Test suite expanded to 44 tests (30 core + 14 DOM)
-- C port supports 12 additional DOM operations
+- example programs: `attribute_example`, `text_example`, `node_example`, `select_example`, `unicode_example`
 
 ## [Unreleased] - Parallelism
 
@@ -146,15 +129,10 @@
 - DocId encoding for deterministic routing of stateful operations
 - Worker isolation with independent supervision
 - Fault tolerance with automatic worker recovery
-- Parallel processing tests (3 tests)
-- Fault tolerance tests (2 tests)
+- Parallel processing tests
+- Fault tolerance tests
 - Worker pool coordinator (`lexbor_erl_pool`)
 - Individual worker processes (`lexbor_erl_worker`)
-
-### Changed
-- Architecture upgraded from single-threaded to worker pool
-- Test suite expanded from 24 to 30 tests
-- Routing strategy uses time-based hash instead of sequential round-robin
 
 ### Fixed
 - Corrected routing strategy documentation from "round-robin" to "time-based hash distribution"
@@ -170,7 +148,7 @@
 - Worker pool with time-based hash distribution
 - Document lifecycle management with DocId encoding
 - Application and supervisor structure
-- Common Test suite with 24 integration tests covering:
+- Common Test suite
   - Lifecycle management
   - Stateless and stateful operations
   - Error handling and edge cases

@@ -102,31 +102,87 @@ ok
 11> lexbor_erl:get_text(Doc, Li).
 {ok,<<"New Text">>}
 
+%% Content manipulation: append HTML to matching elements
+12> {ok, NumModified} = lexbor_erl:append_content(Doc, <<"ul">>, <<"<li>New Item</li>">>).
+{ok,1}
+
+13> {ok, Html} = lexbor_erl:serialize(Doc).
+{ok,<<"<!DOCTYPE html><html><head></head><body><div id=\"app\"><ul><li class=\"modified\">New Text</li><li class=\"b\">B</li><li>New Item</li></ul></div></body></html>">>}
+
 %% Streaming parser: parse incrementally
-12> {ok, Session} = lexbor_erl:parse_stream_begin().
+14> {ok, Session} = lexbor_erl:parse_stream_begin().
 {ok,72057594037927937}
 
-13> ok = lexbor_erl:parse_stream_chunk(Session, <<"<div><p>He">>).
+15> ok = lexbor_erl:parse_stream_chunk(Session, <<"<div><p>He">>).
 ok
 
-14> ok = lexbor_erl:parse_stream_chunk(Session, <<"llo</p></div>">>).
+16> ok = lexbor_erl:parse_stream_chunk(Session, <<"llo</p></div>">>).
 ok
 
-15> {ok, StreamDoc} = lexbor_erl:parse_stream_end(Session).
+17> {ok, StreamDoc} = lexbor_erl:parse_stream_end(Session).
 {ok,72057594037927938}
 
 %% Release documents
-16> ok = lexbor_erl:release(Doc).
+18> ok = lexbor_erl:release(Doc).
 ok
 
-17> ok = lexbor_erl:release(StreamDoc).
+19> ok = lexbor_erl:release(StreamDoc).
 ok
 
-18> lexbor_erl:stop().
+20> lexbor_erl:stop().
 ok
 ```
 
 Also check out [examples/](https://github.com/f34nk/lexbor_erl/tree/main/examples) directory.
+
+## Supported Operations
+
+### Document Lifecycle
+- `parse/1` - Parse HTML document, returns document handle
+- `release/1` - Release document and free resources
+- `serialize/1` - Serialize document to HTML5 binary
+
+### Stateless Operations
+- `parse_serialize/1` - Parse and serialize in one call (convenience function)
+- `select_html/2` - Parse, select elements, return HTML fragments
+
+### CSS Selectors
+- `select/2` - Find elements using CSS selectors
+- Supports: ID (`#id`), class (`.class`), tag (`div`), attributes (`[attr=value]`)
+- Supports: combinators (` `, `>`, `+`, `~`), pseudo-classes (`:first-child`, `:nth-child()`, etc.)
+
+### DOM Queries
+- `outer_html/2` - Get outer HTML of element (including the element tag)
+- `inner_html/2` - Get inner HTML of element (children only)
+
+### Attribute Manipulation
+- `get_attribute/3` - Get attribute value
+- `set_attribute/4` - Set attribute value
+- `remove_attribute/3` - Remove attribute
+
+### Text Content
+- `get_text/2` - Get text content recursively
+- `set_text/3` - Set text content (removes all children, replaces with text)
+
+### HTML Content Manipulation
+- `set_inner_html/3` - Replace element's children with parsed HTML
+- `append_content/3` - Append HTML content to all elements matching selector
+
+### DOM Tree Manipulation
+- `create_element/2` - Create new element
+- `append_child/3` - Append child node to parent
+- `insert_before/4` - Insert node before reference node
+- `remove_node/2` - Remove node from tree
+
+### Streaming Parser
+- `parse_stream_begin/0` - Start streaming parse session
+- `parse_stream_chunk/2` - Add HTML chunk to stream
+- `parse_stream_end/1` - Finalize stream and get document
+
+### Application Management
+- `start/0` - Start lexbor_erl application
+- `stop/0` - Stop lexbor_erl application
+- `alive/0` - Check if service is running
 
 ## How to use it in your application?
 
