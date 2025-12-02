@@ -168,6 +168,7 @@ Also check out [examples/](https://github.com/f34nk/lexbor_erl/tree/main/example
 - `set_inner_html/3` - Replace element's children with parsed HTML
 - `append_content/3` - Append HTML content to all elements matching selector
 - `prepend_content/3` - Prepend as first child
+- `insert_before_content/3` - Insert HTML as sibling before matched elements
 
 ### DOM Tree Manipulation
 - `create_element/2` - Create new element
