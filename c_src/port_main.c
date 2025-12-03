@@ -1809,6 +1809,36 @@ static lxb_status_t insert_after_match_cb(lxb_dom_node_t *node,
     return LXB_STATUS_OK;
 }
 
+/* Context for collecting matched elements for replace */
+typedef struct {
+    lxb_dom_node_t **nodes;
+    size_t capacity;
+    size_t count;
+} replace_context_t;
+
+/* Callback for selector matches - stores nodes for replace */
+static lxb_status_t replace_match_cb(lxb_dom_node_t *node, 
+                                     lxb_css_selector_specificity_t spec, 
+                                     void *ctx) {
+    (void)spec;
+    replace_context_t *rc = (replace_context_t*)ctx;
+    
+    /* Resize array if needed */
+    if (rc->count == rc->capacity) {
+        size_t new_cap = rc->capacity * 2;
+        lxb_dom_node_t **new_arr = (lxb_dom_node_t**)realloc(
+            rc->nodes, new_cap * sizeof(lxb_dom_node_t*));
+        if (!new_arr) return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+        rc->nodes = new_arr;
+        rc->capacity = new_cap;
+    }
+    
+    /* Store the matched node */
+    rc->nodes[rc->count++] = node;
+    
+    return LXB_STATUS_OK;
+}
+
 /*
  * INSERT_AFTER_CONTENT: Insert HTML content after elements matching a CSS selector
  * 
@@ -1976,6 +2006,176 @@ static int op_insert_after_content(const unsigned char *payload, uint32_t plen,
     if (!buf) return 0;
     buf[0] = 0;  /* Success */
     write_uint64(buf + 1, num_inserted);
+    *out = buf;
+    *outlen = 9;
+    return 1;
+}
+
+/*
+ * REPLACE_CONTENT: Replace elements matching a CSS selector with HTML content
+ * 
+ * Payload: <<DocId:64, SelectorLen:32, Selector/binary, HTMLLen:32, HTML/binary>>
+ * Response: <<0:8, NumReplaced:64>> on success, <<1:8, ErrorMsg/binary>> on error
+ *
+ * This operation:
+ * 1. Parses the CSS selector
+ * 2. Finds all matching elements in the document
+ * 3. For each match, parses the HTML content into a temporary container
+ * 4. Inserts all parsed nodes BEFORE the matched element (as siblings)
+ * 5. Removes and destroys the matched element
+ * 6. Returns the number of elements that were replaced
+ *
+ * Key difference from insert_before: This removes the matched element after inserting.
+ * The matched element is destroyed to free memory (ModestEx is stateless, no undo needed).
+ *
+ * Note: This operation works on full HTML5 documents only. Scope extraction
+ * (body_children, body, head) is handled by ModestEx using regex after serialization.
+ */
+static int op_replace_content(const unsigned char *payload, uint32_t plen,
+                              unsigned char **out, uint32_t *outlen) {
+    if (plen < 8 + 4 + 4) return 0;
+    
+    /* Parse payload */
+    uint32_t pos = 0;
+    uint64_t doc_id = read_uint64(payload + pos);
+    pos += 8;
+    
+    uint32_t selector_len = read_uint32(payload + pos);
+    pos += 4;
+    
+    if (pos + selector_len + 4 > plen) return 0;
+    const unsigned char *selector = payload + pos;
+    pos += selector_len;
+    
+    uint32_t html_len = read_uint32(payload + pos);
+    pos += 4;
+    
+    if (pos + html_len != plen) return 0;
+    const unsigned char *html = payload + pos;
+    
+    /* Find document */
+    Doc *d = find_doc(doc_id);
+    if (!d) {
+        return error_response("doc_not_found", out, outlen);
+    }
+    
+    /* Create CSS parser */
+    lxb_css_parser_t *parser = lxb_css_parser_create();
+    if (!parser) {
+        return error_response("css_parser_create_failed", out, outlen);
+    }
+    
+    lxb_status_t status = lxb_css_parser_init(parser, NULL);
+    if (status != LXB_STATUS_OK) {
+        lxb_css_parser_destroy(parser, true);
+        return error_response("css_parser_init_failed", out, outlen);
+    }
+    
+    /* Parse selector */
+    lxb_css_selector_list_t *list = lxb_css_selectors_parse(parser, 
+                                                             selector, selector_len);
+    if (!list) {
+        lxb_css_parser_destroy(parser, true);
+        return error_response("invalid_selector", out, outlen);
+    }
+    
+    /* Create selectors engine */
+    lxb_selectors_t *selectors = lxb_selectors_create();
+    if (!selectors) {
+        lxb_css_parser_destroy(parser, true);
+        return error_response("selectors_create_failed", out, outlen);
+    }
+    
+    status = lxb_selectors_init(selectors);
+    if (status != LXB_STATUS_OK) {
+        lxb_selectors_destroy(selectors, true);
+        lxb_css_parser_destroy(parser, true);
+        return error_response("selectors_init_failed", out, outlen);
+    }
+    
+    /* Initialize context for collecting matches */
+    replace_context_t rc = {
+        .nodes = (lxb_dom_node_t**)malloc(16 * sizeof(lxb_dom_node_t*)),
+        .capacity = 16,
+        .count = 0
+    };
+    
+    if (!rc.nodes) {
+        lxb_selectors_destroy(selectors, true);
+        lxb_css_parser_destroy(parser, true);
+        return error_response("allocation_failed", out, outlen);
+    }
+    
+    /* Find all matching elements */
+    lxb_dom_node_t *root = lxb_dom_interface_node(
+        lxb_html_document_body_element(d->doc));
+    status = lxb_selectors_find(selectors, root, list, replace_match_cb, &rc);
+    
+    /* Cleanup selectors */
+    lxb_selectors_destroy(selectors, true);
+    lxb_css_parser_destroy(parser, true);
+    
+    if (status != LXB_STATUS_OK) {
+        free(rc.nodes);
+        return error_response("selector_match_failed", out, outlen);
+    }
+    
+    /* For each matched element, replace it with HTML content */
+    size_t num_replaced = 0;
+    for (size_t i = 0; i < rc.count; i++) {
+        lxb_dom_node_t *target_node = rc.nodes[i];
+        
+        /* Verify target has a parent - can't replace root */
+        lxb_dom_node_t *parent = lxb_dom_node_parent(target_node);
+        if (parent == NULL) continue;
+        
+        /* Create temporary container for parsing HTML fragment */
+        lxb_dom_element_t *temp_container = lxb_dom_document_create_element(
+            lxb_dom_interface_document(d->doc), 
+            (const lxb_char_t *)"div", 3, NULL);
+        
+        if (!temp_container) continue;
+        
+        /* Parse HTML fragment into temporary container */
+        lxb_html_element_t *parsed = lxb_html_element_inner_html_set(
+            lxb_html_interface_element(temp_container),
+            html, html_len);
+        
+        if (!parsed) {
+            lxb_dom_node_destroy(lxb_dom_interface_node(temp_container));
+            continue;
+        }
+        
+        /* Move all children from temp container, inserting before target */
+        lxb_dom_node_t *child = lxb_dom_node_first_child(
+            lxb_dom_interface_node(temp_container));
+        while (child != NULL) {
+            lxb_dom_node_t *next = lxb_dom_node_next(child);
+            lxb_dom_node_remove(child);  /* Remove from temp container */
+            lxb_dom_node_insert_before(target_node, child);  /* Insert before target */
+            child = next;
+        }
+        
+        /* Remove the target element from the tree */
+        lxb_dom_node_remove(target_node);
+        
+        /* Destroy the removed node to free memory
+         * ModestEx is stateless, so undo/reuse is not needed */
+        lxb_dom_node_destroy_deep(target_node);
+        
+        /* Cleanup temp container */
+        lxb_dom_node_destroy(lxb_dom_interface_node(temp_container));
+        num_replaced++;
+    }
+    
+    /* Cleanup */
+    free(rc.nodes);
+    
+    /* Return success with count */
+    unsigned char *buf = (unsigned char*)malloc(9);
+    if (!buf) return 0;
+    buf[0] = 0;  /* Success */
+    write_uint64(buf + 1, num_replaced);
     *out = buf;
     *outlen = 9;
     return 1;
@@ -2204,6 +2404,11 @@ int main(void){
         }
         else if(tag_eq(tag,"INSERT_AFTER_CT")){
             if(!op_insert_after_content(payload, plen, &resp, &rplen)){ 
+                free(req); break; 
+            }
+        }
+        else if(tag_eq(tag,"REPLACE_CONTENT")){
+            if(!op_replace_content(payload, plen, &resp, &rplen)){ 
                 free(req); break; 
             }
         }

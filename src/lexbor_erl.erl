@@ -51,7 +51,7 @@
          get_attribute/3, set_attribute/4, remove_attribute/3, get_text/2, set_text/3,
          inner_html/2, set_inner_html/3, serialize/1, create_element/2, append_child/3,
          insert_before/4, remove_node/2, append_content/3, prepend_content/3,
-         insert_before_content/3, insert_after_content/3]).
+         insert_before_content/3, insert_after_content/3, replace_content/3]).
 
     %% stateless
 
@@ -1091,6 +1091,99 @@ insert_after_content(DocId, Selector, Html) when is_binary(Selector) ->
           HtmlLen:32/big,
           HtmlBin/binary>>,
     case lexbor_erl_pool:call(DocId, {<<"INSERT_AFTER_CT">>, Payload}) of
+        {ok, <<0, NumMatches:64/big-unsigned-integer>>} ->
+            {ok, NumMatches};
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
+    end.
+
+%% @doc Replace all elements matching a CSS selector with HTML content.
+%%
+%% Parses the CSS selector to find all matching elements in the document, then
+%% parses the HTML content and replaces each matched element with the parsed content.
+%% The matched elements are removed from the document and destroyed to free memory.
+%% Returns the number of elements that were replaced.
+%%
+%% This is a high-level operation that combines selector matching, HTML parsing,
+%% and DOM manipulation in a single atomic operation.
+%%
+%% <strong>How it works:</strong> For each matched element, the new HTML content is
+%% inserted as siblings before the matched element, then the matched element is removed.
+%% This effectively replaces the element with the new content.
+%%
+%% <strong>Note:</strong> This operation works on full HTML5 documents. The document
+%% is always serialized as complete HTML5. Scope extraction (body_children, body, head)
+%% is handled by ModestEx using regex after receiving the full HTML output.
+%%
+%% == Example ==
+%% ```
+%% {ok, Doc} = lexbor_erl:parse(<<"<div><p>Old</p></div>">>),
+%% {ok, 1} = lexbor_erl:replace_content(Doc, <<"p">>, <<"<span>New</span>">>),
+%% {ok, Html} = lexbor_erl:serialize(Doc),
+%% % Html = <<"<!DOCTYPE html><html>...><div><span>New</span></div>...</html>">>
+%% ok = lexbor_erl:release(Doc).
+%% '''
+%%
+%% == Replacing with Multiple Elements ==
+%%
+%% You can replace one element with multiple elements:
+%% ```
+%% {ok, Doc} = lexbor_erl:parse(<<"<div><p>Old</p></div>">>),
+%% {ok, 1} = lexbor_erl:replace_content(Doc, <<"p">>, <<"<span>A</span><span>B</span>">>),
+%% {ok, Html} = lexbor_erl:serialize(Doc),
+%% % Html = <<"<!DOCTYPE html><html>...><div><span>A</span><span>B</span></div>...</html>">>
+%% '''
+%%
+%% == Replacing with Empty Content ==
+%%
+%% Replacing with empty string effectively removes the matched elements:
+%% ```
+%% {ok, Doc} = lexbor_erl:parse(<<"<div><p>Remove me</p></div>">>),
+%% {ok, 1} = lexbor_erl:replace_content(Doc, <<"p">>, <<"">>),
+%% {ok, Html} = lexbor_erl:serialize(Doc),
+%% % Html = <<"<!DOCTYPE html><html>...><div></div>...</html>">>
+%% '''
+%%
+%% == Edge Cases ==
+%%
+%% <ul>
+%%   <li>Elements without a parent (document root) are skipped</li>
+%%   <li>Multiple matches are processed in document order</li>
+%%   <li>Replaced elements are destroyed and cannot be recovered</li>
+%% </ul>
+%%
+%% == Error Handling ==
+%%
+%% Returns errors for:
+%% <ul>
+%%   <li>`doc_not_found' - Document ID is invalid</li>
+%%   <li>`invalid_selector' - CSS selector syntax error</li>
+%%   <li>`css_parser_create_failed' - Failed to create CSS parser</li>
+%%   <li>`css_parser_init_failed' - Failed to initialize CSS parser</li>
+%%   <li>`selectors_create_failed' - Failed to create selectors engine</li>
+%%   <li>`selectors_init_failed' - Failed to initialize selectors engine</li>
+%%   <li>`selector_match_failed' - Selector matching failed</li>
+%% </ul>
+%%
+%% @param DocId Document handle from {@link parse/1}
+%% @param Selector CSS selector to find elements to replace
+%% @param Html HTML content to replace matched elements with
+%% @returns `{ok, NumReplaced}' with count of replaced elements, or `{error, Reason}'
+-spec replace_content(doc_id(), selector(), html_bin()) ->
+                         {ok, non_neg_integer()} | {error, term()}.
+replace_content(DocId, Selector, Html) when is_binary(Selector) ->
+    HtmlBin = iolist_to_binary(Html),
+    SelectorLen = byte_size(Selector),
+    HtmlLen = byte_size(HtmlBin),
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          SelectorLen:32/big,
+          Selector/binary,
+          HtmlLen:32/big,
+          HtmlBin/binary>>,
+    case lexbor_erl_pool:call(DocId, {<<"REPLACE_CONTENT">>, Payload}) of
         {ok, <<0, NumMatches:64/big-unsigned-integer>>} ->
             {ok, NumMatches};
         {ok, <<1, Err/binary>>} ->

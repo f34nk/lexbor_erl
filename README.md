@@ -170,6 +170,7 @@ Also check out [examples/](https://github.com/f34nk/lexbor_erl/tree/main/example
 - `prepend_content/3` - Prepend as first child
 - `insert_before_content/3` - Insert HTML as sibling before matched elements
 - `insert_after_content/3` - Insert HTML as sibling after matched elements
+- `replace_content/3` - Replace matched elements with HTML content
 
 ### DOM Tree Manipulation
 - `create_element/2` - Create new element
