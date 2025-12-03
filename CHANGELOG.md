@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] - Add `replace_content/3` operation
+
+### Added
+- **`replace_content/3` operation**: Replace all elements matching a CSS selector with HTML content
+  - Finds elements using CSS selector and replaces them with new HTML content
+  - The matched elements are removed from the document (as siblings are inserted before, then target is deleted)
+  - Matched elements are destroyed to free memory (ModestEx is stateless, no undo needed)
+  - Returns count of replaced elements
+  - C implementation for optimal performance
+  - Erlang wrapper with comprehensive documentation
+
+### Technical Details
+- Uses lexbor's CSS selector engine for matching
+- Parses HTML fragments using `lxb_html_element_inner_html_set()`
+- Inserts new content before matched element using `lxb_dom_node_insert_before()`
+- Removes and destroys matched element using `lxb_dom_node_remove()` and `lxb_dom_node_destroy_deep()`
+- Elements without a parent (document root) are skipped
+- Replace with empty string effectively removes elements
+- O(n + m + k×m') complexity where n=DOM nodes, m=HTML length, k=matches, m'=parsed nodes
+
 ## [Unreleased] - Add `insert_after_content/3` operation
 
 ### Added
