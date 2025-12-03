@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - Add `replace_content/3` operation
+## [Released] - 0.3.0 - Add `replace_content/3` operation
 
 ### Added
 - **`replace_content/3` operation**: Replace all elements matching a CSS selector with HTML content

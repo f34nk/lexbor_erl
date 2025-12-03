@@ -1,8 +1,8 @@
 {"1.2.0",
-[{<<"lexbor_erl">>,{pkg,<<"lexbor_erl">>,<<"0.2.0">>},0}]}.
+[{<<"lexbor_erl">>,{pkg,<<"lexbor_erl">>,<<"0.3.0">>},0}]}.
 [
 {pkg_hash,[
- {<<"lexbor_erl">>, <<"DBE7E181645ADAF9B02739611099BC37BDE5A50B3D8847E02CC2AD6493B98DDF">>}]},
+ {<<"lexbor_erl">>, <<"7C35C9B4B9924190F8980304C384D04A904B0ACC756641FC2C68581878CCAD17">>}]},
 {pkg_hash_ext,[
- {<<"lexbor_erl">>, <<"3B0CEBD0BBBA9390C8016268FC0230FB8A1C2385FB47DE8F1563C0371B466E27">>}]}
+ {<<"lexbor_erl">>, <<"484A39F917306715C8F771C6089330025DE3C0185B14E764129FF94FCB047109">>}]}
 ].

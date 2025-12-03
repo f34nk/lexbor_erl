@@ -3,7 +3,7 @@
  [%% Basic metadata
   {description,
    "Fast HTML5 parser with DOM manipulation, CSS selectors, and streaming support via Lexbor C library"},
-  {vsn, "0.2.0"},
+  {vsn, "0.3.0"},
   {registered, [lexbor_erl_pool, lexbor_erl_sup]},
   {mod, {lexbor_erl_app, []}},
   {applications, [kernel, stdlib]},

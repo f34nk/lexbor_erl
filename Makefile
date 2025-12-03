@@ -128,7 +128,7 @@ publish/bump-version:
 	sed -i '' 's/{lexbor_erl, "$(CURRENT_VERSION)"}/{lexbor_erl, "$(NEW_VERSION)"}/g' demo/rebar.config
 	
 .PHONY: demo
-demo:
+demo: demo/clean
 	#
 	# Run demo
 	#
