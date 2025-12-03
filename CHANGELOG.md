@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] - Add `insert_after_content/3` operation
+
+### Added
+- **`insert_after_content/3` operation**: Insert HTML content AFTER all elements matching a CSS selector
+  - Inserts as SIBLINGS (like insert_before), positioned AFTER the matched element
+  - Content is inserted in the parent's child list just after each matched element
+  - Combines CSS selector matching, HTML parsing, and DOM manipulation in a single atomic operation
+  - Returns count of processed elements
+  - C implementation for optimal performance
+  - Erlang wrapper with comprehensive documentation
+
+### Technical Details
+- Uses lexbor's CSS selector engine for matching
+- Parses HTML fragments using `lxb_html_element_inner_html_set()`
+- Uses `lxb_dom_node_insert_after()` with target element as reference
+- **Important**: Inserts nodes in REVERSE order to maintain correct document order
+- Elements without a parent (document root) are skipped
+- O(n + m + k×m') complexity where n=DOM nodes, m=HTML length, k=matches, m'=parsed nodes
+
+## [Unreleased] - Add `insert_before_content/3` operation
+
+### Added
+- **`insert_before_content/3` operation**: Insert HTML content BEFORE all elements matching a CSS selector
+  - **Key difference from append/prepend**: Inserts as SIBLINGS, not as children
+  - Content is inserted in the parent's child list just before each matched element
+  - Combines CSS selector matching, HTML parsing, and DOM manipulation in a single atomic operation
+  - Returns count of processed elements
+  - C implementation for optimal performance
+  - Erlang wrapper with comprehensive documentation
+
+### Technical Details
+- Uses lexbor's CSS selector engine for matching
+- Parses HTML fragments using `lxb_html_element_inner_html_set()`
+- Uses `lxb_dom_node_insert_before()` with target element as reference
+- Elements without a parent (document root) are skipped
+- Maintains document order when inserting multiple nodes
+- O(n + m + k×m') complexity where n=DOM nodes, m=HTML length, k=matches, m'=parsed nodes
+
 ## [Released] - 0.2.0 - Add `prepend_content/3` operation
 
 ### Added

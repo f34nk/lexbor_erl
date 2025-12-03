@@ -50,7 +50,8 @@
          select/2, outer_html/2, parse_stream_begin/0, parse_stream_chunk/2, parse_stream_end/1,
          get_attribute/3, set_attribute/4, remove_attribute/3, get_text/2, set_text/3,
          inner_html/2, set_inner_html/3, serialize/1, create_element/2, append_child/3,
-         insert_before/4, remove_node/2, append_content/3, prepend_content/3]).
+         insert_before/4, remove_node/2, append_content/3, prepend_content/3,
+         insert_before_content/3, insert_after_content/3]).
 
     %% stateless
 
@@ -946,6 +947,150 @@ prepend_content(DocId, Selector, Html) when is_binary(Selector) ->
           HtmlLen:32/big,
           HtmlBin/binary>>,
     case lexbor_erl_pool:call(DocId, {<<"PREPEND_CONTENT">>, Payload}) of
+        {ok, <<0, NumMatches:64/big-unsigned-integer>>} ->
+            {ok, NumMatches};
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
+    end.
+
+%% @doc Insert HTML content before all elements matching a CSS selector.
+%%
+%% Parses the CSS selector to find all matching elements in the document, then
+%% parses the HTML content and inserts it BEFORE each matched element (as siblings,
+%% not as children). Returns the number of elements that were processed.
+%%
+%% This is a high-level operation that combines selector matching, HTML parsing,
+%% and DOM manipulation in a single atomic operation.
+%%
+%% <strong>Key difference from append/prepend:</strong> While `append_content/3' and
+%% `prepend_content/3' insert content as CHILDREN of the matched elements, this function
+%% inserts content as SIBLINGS (before the matched element in its parent's child list).
+%%
+%% <strong>Note:</strong> This operation works on full HTML5 documents. The document
+%% is always serialized as complete HTML5. Scope extraction (body_children, body, head)
+%% is handled by ModestEx using regex after receiving the full HTML output.
+%%
+%% == Example ==
+%% ```
+%% {ok, Doc} = lexbor_erl:parse(<<"<div><p>World</p></div>">>),
+%% {ok, 1} = lexbor_erl:insert_before_content(Doc, <<"p">>, <<"<p>Hello</p>">>),
+%% {ok, Html} = lexbor_erl:serialize(Doc),
+%% % Html = <<"<!DOCTYPE html><html>...><div><p>Hello</p><p>World</p></div>...</html>">>
+%% ok = lexbor_erl:release(Doc).
+%% '''
+%%
+%% == Edge Cases ==
+%%
+%% <ul>
+%%   <li>Elements without a parent (document root) are skipped</li>
+%%   <li>Multiple consecutive matches are processed in document order</li>
+%%   <li>Earlier insertions don't affect positions of later matched elements</li>
+%% </ul>
+%%
+%% == Error Handling ==
+%%
+%% Returns errors for:
+%% <ul>
+%%   <li>`doc_not_found' - Document ID is invalid</li>
+%%   <li>`invalid_selector' - CSS selector syntax error</li>
+%%   <li>`css_parser_create_failed' - Failed to create CSS parser</li>
+%%   <li>`css_parser_init_failed' - Failed to initialize CSS parser</li>
+%%   <li>`selectors_create_failed' - Failed to create selectors engine</li>
+%%   <li>`selectors_init_failed' - Failed to initialize selectors engine</li>
+%%   <li>`selector_match_failed' - Selector matching failed</li>
+%% </ul>
+%%
+%% @param DocId Document handle from {@link parse/1}
+%% @param Selector CSS selector to find target elements
+%% @param Html HTML content to insert before each matched element
+%% @returns `{ok, NumInserted}' with count of processed elements, or `{error, Reason}'
+-spec insert_before_content(doc_id(), selector(), html_bin()) ->
+                               {ok, non_neg_integer()} | {error, term()}.
+insert_before_content(DocId, Selector, Html) when is_binary(Selector) ->
+    HtmlBin = iolist_to_binary(Html),
+    SelectorLen = byte_size(Selector),
+    HtmlLen = byte_size(HtmlBin),
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          SelectorLen:32/big,
+          Selector/binary,
+          HtmlLen:32/big,
+          HtmlBin/binary>>,
+    case lexbor_erl_pool:call(DocId, {<<"INSERT_BEFORE_CT">>, Payload}) of
+        {ok, <<0, NumMatches:64/big-unsigned-integer>>} ->
+            {ok, NumMatches};
+        {ok, <<1, Err/binary>>} ->
+            {error, binary_to_list(Err)};
+        Other ->
+            Other
+    end.
+
+%% @doc Insert HTML content after all elements matching a CSS selector.
+%%
+%% Parses the CSS selector to find all matching elements in the document, then
+%% parses the HTML content and inserts it AFTER each matched element (as siblings,
+%% not as children). Returns the number of elements that were processed.
+%%
+%% This is a high-level operation that combines selector matching, HTML parsing,
+%% and DOM manipulation in a single atomic operation.
+%%
+%% <strong>Key difference from insert_before_content:</strong> While `insert_before_content/3'
+%% inserts content BEFORE the matched elements, this function inserts content AFTER them.
+%% Both insert as siblings, not as children.
+%%
+%% <strong>Note:</strong> This operation works on full HTML5 documents. The document
+%% is always serialized as complete HTML5. Scope extraction (body_children, body, head)
+%% is handled by ModestEx using regex after receiving the full HTML output.
+%%
+%% == Example ==
+%% ```
+%% {ok, Doc} = lexbor_erl:parse(<<"<div><p>Hello</p></div>">>),
+%% {ok, 1} = lexbor_erl:insert_after_content(Doc, <<"p">>, <<"<p>World</p>">>),
+%% {ok, Html} = lexbor_erl:serialize(Doc),
+%% % Html = <<"<!DOCTYPE html><html>...><div><p>Hello</p><p>World</p></div>...</html>">>
+%% ok = lexbor_erl:release(Doc).
+%% '''
+%%
+%% == Edge Cases ==
+%%
+%% <ul>
+%%   <li>Elements without a parent (document root) are skipped</li>
+%%   <li>Multiple consecutive matches are processed in document order</li>
+%%   <li>Inserted nodes maintain their order (A, B inserted after target = target, A, B)</li>
+%% </ul>
+%%
+%% == Error Handling ==
+%%
+%% Returns errors for:
+%% <ul>
+%%   <li>`doc_not_found' - Document ID is invalid</li>
+%%   <li>`invalid_selector' - CSS selector syntax error</li>
+%%   <li>`css_parser_create_failed' - Failed to create CSS parser</li>
+%%   <li>`css_parser_init_failed' - Failed to initialize CSS parser</li>
+%%   <li>`selectors_create_failed' - Failed to create selectors engine</li>
+%%   <li>`selectors_init_failed' - Failed to initialize selectors engine</li>
+%%   <li>`selector_match_failed' - Selector matching failed</li>
+%% </ul>
+%%
+%% @param DocId Document handle from {@link parse/1}
+%% @param Selector CSS selector to find target elements
+%% @param Html HTML content to insert after each matched element
+%% @returns `{ok, NumInserted}' with count of processed elements, or `{error, Reason}'
+-spec insert_after_content(doc_id(), selector(), html_bin()) ->
+                              {ok, non_neg_integer()} | {error, term()}.
+insert_after_content(DocId, Selector, Html) when is_binary(Selector) ->
+    HtmlBin = iolist_to_binary(Html),
+    SelectorLen = byte_size(Selector),
+    HtmlLen = byte_size(HtmlBin),
+    Payload =
+        <<DocId:64/big-unsigned-integer,
+          SelectorLen:32/big,
+          Selector/binary,
+          HtmlLen:32/big,
+          HtmlBin/binary>>,
+    case lexbor_erl_pool:call(DocId, {<<"INSERT_AFTER_CT">>, Payload}) of
         {ok, <<0, NumMatches:64/big-unsigned-integer>>} ->
             {ok, NumMatches};
         {ok, <<1, Err/binary>>} ->
