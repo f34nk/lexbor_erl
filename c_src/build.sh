@@ -3,7 +3,7 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p build
 cd build
-cmake ..
+PKG_CONFIG=/usr/bin/false cmake ..
 cmake --build . --config Release
 mkdir -p ../../priv
 cp lexbor_port ../../priv/
