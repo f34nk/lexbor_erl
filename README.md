@@ -194,7 +194,7 @@ Add to your `rebar.config`:
 
 ```erlang
 {deps, [
-    {lexbor_erl, "0.3.0"}
+    {lexbor_erl, "0.3.1"}
 ]}.
 ```
 
@@ -271,7 +271,7 @@ application:set_env(lexbor_erl, pool_size, 8).
 
 ## License
 
-LGPL-2.1-or-later
+Apache-2.0
 
 ## Credits
 

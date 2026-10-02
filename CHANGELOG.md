@@ -1,5 +1,10 @@
 # Changelog
 
+## [Released] - 0.3.1 - Switch license to Apache-2.0
+
+### Changed
+- **License**: Relicensed from LGPL-2.1-or-later to Apache-2.0
+
 ## [Released] - 0.3.0 - Add `replace_content/3` operation
 
 ### Added
