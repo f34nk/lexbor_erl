@@ -26,7 +26,7 @@ An Erlang wrapper for the [Lexbor](https://github.com/lexbor/lexbor) HTML parser
 
 - Erlang/OTP (tested with OTP 24+)
 - CMake 3.10+
-- [Lexbor library](https://github.com/lexbor/lexbor) installed on your system
+- [Lexbor library](https://github.com/lexbor/lexbor) **3.0.0+** installed on your system
 
 ### Installing Lexbor
 
@@ -35,19 +35,18 @@ On macOS with Homebrew:
 brew install lexbor
 ```
 
-On Ubuntu/Debian:
+On Ubuntu/Debian (if your distro packages Lexbor 3.x):
 ```bash
 sudo apt-get install liblexbor-dev
 ```
 
-Or build from source:
+Or build Lexbor 3.0.0+ from source:
 ```bash
-git clone https://github.com/lexbor/lexbor.git
+git clone --depth 1 --branch v3.0.0 https://github.com/lexbor/lexbor.git
 cd lexbor
-mkdir build && cd build
-cmake ..
-make
-sudo make install
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+sudo cmake --install build
 ```
 
 ## Building

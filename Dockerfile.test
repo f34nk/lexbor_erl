@@ -20,11 +20,11 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://s3.amazonaws.com/rebar3/rebar3 -o /usr/local/bin/rebar3 && \
     chmod +x /usr/local/bin/rebar3
 
-# Install lexbor v2.6.0 from source
+# Install lexbor v3.0.0 from source
 RUN cd /tmp && \
-    curl -L https://github.com/lexbor/lexbor/archive/refs/tags/v2.6.0.tar.gz -o lexbor.tar.gz && \
+    curl -L https://github.com/lexbor/lexbor/archive/refs/tags/v3.0.0.tar.gz -o lexbor.tar.gz && \
     tar -xzf lexbor.tar.gz && \
-    cd lexbor-2.6.0 && \
+    cd lexbor-3.0.0 && \
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && \
     cmake --build build && \
     cmake --install build && \

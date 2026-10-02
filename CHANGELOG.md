@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] - Support Lexbor 3.0.0+
+
+### Changed
+- **Lexbor dependency**: Require Lexbor **3.0.0+** (was tested/CI-pinned to 2.6.0)
+- CI and `Dockerfile.test` now build against Lexbor `v3.0.0`
+- CMake discovery hardened for Lexbor 3.x pkg-config (Homebrew `.pc` may ship empty `includedir`/`libdir`)
+
+### Notes
+- Public HTML/DOM/selector APIs used by `lexbor_erl` are compatible with Lexbor 3.x; no port protocol changes
+- Lexbor 3 is a major ABI bump (`liblexbor.so.3`); rebuild the native port after upgrading the system library
+
 ## [Released] - 0.3.1 - Switch license to Apache-2.0
 
 ### Changed
