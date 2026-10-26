@@ -1,6 +1,6 @@
 # lexbor_erl
 
-[![CI](https://github.com/f34nk/lexbor_erl/actions/workflows/ci.yml/badge.svg)](https://github.com/f34nk/lexbor_erl/actions/workflows/ci.yml)
+[![CI](https://github.com/f34nk/lexbor_erl/actions/workflows/release.yml/badge.svg)](https://github.com/f34nk/lexbor_erl/actions/workflows/ci.yml)
 [![lexbor_erl version](https://img.shields.io/hexpm/v/lexbor_erl.svg)](https://hex.pm/packages/lexbor_erl)
 [![Hex.pm](https://img.shields.io/hexpm/dt/lexbor_erl.svg)](https://hex.pm/packages/lexbor_erl)
 
