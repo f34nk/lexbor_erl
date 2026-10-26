@@ -40,10 +40,11 @@ jobs:
           exit 1
         fi
 
-    - name: Set up Erlang/OTP
+    - name: Set up Erlang/OTP and Elixir
       uses: erlef/setup-beam@v1
       with:
         otp-version: '27.0'
+        elixir-version: '1.17'
         rebar3-version: ${{ env.REBAR3_VERSION }}
 
     - name: Install dependencies
@@ -72,11 +73,15 @@ jobs:
     - name: Publish to Hex.pm
       env:
         HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        DIAGNOSTIC: '1'
       run: |
         if [ -z "$HEX_API_KEY" ]; then
           echo "::error::HEX_API_KEY secret is not set"
           exit 1
         fi
+        # Do not ship the CI-built port binary in the Hex package.
+        rm -f priv/lexbor_port
         # rebar3_hex publish_branch requires branch name "main"
         git checkout -B main
-        rebar3 hex publish --yes
+        # --repo hexpm is required for HEX_API_KEY to be used in CI
+        rebar3 hex publish --repo hexpm --yes
