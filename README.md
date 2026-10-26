@@ -194,7 +194,7 @@ Add to your `rebar.config`:
 
 ```erlang
 {deps, [
-    {lexbor_erl, "0.3.3"}
+    {lexbor_erl, "0.3.4"}
 ]}.
 ```
 
