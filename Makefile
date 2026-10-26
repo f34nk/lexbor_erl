@@ -1,6 +1,6 @@
 X:=$(shell find examples -type f -name "*.erl" -not -name examples -maxdepth 1 -exec basename {} \;)
 EXAMPLES:=$(foreach x,$(X),$(x))
-NEW_VERSION:=$(shell cat version.txt)
+NEW_VERSION:=$(shell cat VERSION)
 
 .PHONY: all
 all: clean compile test-c test examples
@@ -127,6 +127,12 @@ publish/bump-version:
 	sed -i '' 's/{lexbor_erl, "$(CURRENT_VERSION)"}/{lexbor_erl, "$(NEW_VERSION)"}/g' README.md
 	sed -i '' 's/{lexbor_erl, "$(CURRENT_VERSION)"}/{lexbor_erl, "$(NEW_VERSION)"}/g' demo/rebar.config
 	
+.PHONY: publish/tag
+publish/tag:
+	VERSION=$(cat VERSION) && \
+	git tag -a v${VERSION} -m v${VERSION} && \
+	git push origin v${VERSION}
+
 .PHONY: demo
 demo: demo/clean
 	#
