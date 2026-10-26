@@ -33,9 +33,10 @@ jobs:
 
     - name: Verify tag commit is on main
       run: |
-        git fetch origin main
+        # Tag checkouts often lack origin/main; fetch into that ref explicitly.
+        git fetch origin main:refs/remotes/origin/main
         if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-          echo "::error::Tag ${GITHUB_REF_NAME} is not on origin/main"
+          echo "::error::Tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on origin/main ($(git rev-parse origin/main))"
           exit 1
         fi
 
