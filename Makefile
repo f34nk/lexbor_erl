@@ -129,9 +129,10 @@ publish/bump-version:
 	
 .PHONY: publish/tag
 publish/tag:
-	VERSION=$(cat VERSION) && \
-	git tag -a v${VERSION} -m v${VERSION} && \
-	git push origin v${VERSION}
+	VERSION=$$(tr -d '[:space:]' < VERSION) && \
+	test -n "$$VERSION" && \
+	git tag -a v$$VERSION -m v$$VERSION && \
+	git push origin v$$VERSION
 
 .PHONY: demo
 demo: demo/clean
